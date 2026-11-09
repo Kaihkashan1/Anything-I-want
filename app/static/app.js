@@ -883,10 +883,8 @@ function canAddTypedPantryItem(trimmedNeedle) {
 // the main search box now (see renderSearchSuggest) — no reason for a
 // second, separate ingredient search elsewhere in the app.
 function renderHaveChips() {
-  const selected = groupPantry(state.have);
-  els.haveChips.innerHTML = selected.length
-    ? pantryGroupsHtml(selected, true)
-    : `<span class="status">${escapeHtml(t("nothingMarkedYet"))}</span>`;
+  if (!els.haveChips) return;
+  els.haveChips.innerHTML = "";
 }
 
 // The same box you search recipes with also lets you mark something as
@@ -897,32 +895,9 @@ function renderHaveChips() {
 // old Pantry-tab search: skimming the whole catalog doesn't scale as the
 // box grows.
 function renderSearchSuggest() {
-  const trimmed = state.query.trim();
-  if (!trimmed) {
-    els.searchSuggest.innerHTML = "";
-    els.searchSuggest.hidden = true;
-    return;
-  }
-
-  const needle = trimmed.toLowerCase();
-  const matches = pantryCatalog()
-    .filter((item) => !state.have.includes(item) && pantryQueryMatch(item, needle))
-    .slice(0, 8);
-  const canAdd = canAddTypedPantryItem(trimmed);
-  if (!matches.length && !canAdd) {
-    els.searchSuggest.innerHTML = "";
-    els.searchSuggest.hidden = true;
-    return;
-  }
-
-  const matchChips = matches
-    .map((item) => `<button class="chip toggle" type="button" data-pantry="${escapeAttr(item)}">+ ${escapeHtml(item)}</button>`)
-    .join("");
-  const addChip = canAdd
-    ? `<button class="chip active" type="button" data-action="add-pantry-item" data-item="${escapeAttr(trimmed)}">${escapeHtml(t("addQuoted", { item: trimmed }))}</button>`
-    : "";
-  els.searchSuggest.innerHTML = `<span class="search-suggest-label">${escapeHtml(t("markAsHave"))}</span>${matchChips}${addChip}`;
-  els.searchSuggest.hidden = false;
+  if (!els.searchSuggest) return;
+  els.searchSuggest.innerHTML = "";
+  els.searchSuggest.hidden = true;
 }
 
 // ---------- filters / recipe grid (existing browse behavior) ----------
@@ -952,7 +927,7 @@ function renderFilters() {
     .querySelectorAll("#sort-options .chip")
     .forEach((chip) => chip.classList.toggle("active", chip.dataset.sort === state.sort));
 
-  const activeCount = [state.tags.size > 0, state.favoritesOnly, state.have.length > 0, state.sourceFilters.size > 0].filter(Boolean).length;
+  const activeCount = [state.tags.size > 0, state.favoritesOnly, state.sourceFilters.size > 0].filter(Boolean).length;
   els.filtersBtn.classList.toggle("active", activeCount > 0);
   els.filtersBtn.textContent = "";
   els.filtersBtn.append(filtersIcon(), document.createTextNode(activeCount > 0 ? t("filtersCount", { count: activeCount }) : t("filters")));
@@ -1106,24 +1081,81 @@ function missingIngredients(recipe) {
 // Computed once per recipe (on load, and again after any edit that could
 // change these fields) rather than rebuilt on every filtered() call — the
 // same tradeoff Models.swift makes on iOS (see Recipe.searchBlob there).
+function lettersOnly(text) {
+  return String(text || "").toLowerCase().replace(/[^a-z]/g, "");
+}
+
+function alphaWords(text) {
+  return String(text || "").toLowerCase().match(/[a-z]+/g) || [];
+}
+
+function levenshtein(left, right) {
+  if (left === right) return 0;
+  if (!left) return right.length;
+  if (!right) return left.length;
+  let prev = Array.from({ length: right.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= left.length; i += 1) {
+    const curr = [i];
+    for (let j = 1; j <= right.length; j += 1) {
+      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+    }
+    prev = curr;
+  }
+  return prev[right.length];
+}
+
+function typoAllowance(length) {
+  if (length <= 2) return 0;
+  if (length <= 5) return 1;
+  return 2;
+}
+
+function wordFuzzyMatch(word, needle) {
+  if (!needle) return true;
+  if (word.includes(needle) || word.startsWith(needle) || needle.startsWith(word)) return true;
+  const allowed = typoAllowance(needle.length);
+  if (!allowed || Math.abs(word.length - needle.length) > allowed) return false;
+  return levenshtein(word, needle) <= allowed;
+}
+
+function titleMatchesQuery(title, query) {
+  const needle = String(query || "").trim().toLowerCase();
+  if (!needle) return true;
+  const folded = String(title || "").toLowerCase();
+  if (folded.includes(needle)) return true;
+  const compactTitle = lettersOnly(folded);
+  const compactQuery = lettersOnly(needle);
+  if (compactQuery && compactTitle.includes(compactQuery)) return true;
+  const queryWords = alphaWords(needle);
+  const titleWords = alphaWords(folded);
+  if (queryWords.length && queryWords.every((wanted) => titleWords.some((word) => wordFuzzyMatch(word, wanted)))) {
+    return true;
+  }
+  const allowed = typoAllowance(compactQuery.length);
+  return Boolean(
+    allowed
+      && compactQuery
+      && Math.abs(compactTitle.length - compactQuery.length) <= allowed
+      && levenshtein(compactTitle, compactQuery) <= allowed
+  );
+}
+
 function computeSearchBlob(recipe) {
-  return [recipe.title, recipe.course, ...(recipe.tags || []), ...(recipe.ingredients || [])].join(" ").toLowerCase();
+  return String(recipe.title || "").toLowerCase();
 }
 
 function filtered() {
-  const query = state.query.trim().toLowerCase();
+  const query = state.query.trim();
   const rows = [];
   for (const recipe of state.recipes) {
     if (state.favoritesOnly && !recipe.favorite) continue;
     if (state.tags.size && ![...state.tags].every((tag) => (recipe.tags || []).includes(tag))) continue;
     if (state.sourceFilters.size && !state.sourceFilters.has(recipeSourceCategory(recipe))) continue;
-    const match = recipeMatch(recipe);
-    if (query && !(recipe.searchBlob || computeSearchBlob(recipe)).includes(query)) continue;
-    rows.push({ recipe, match });
+    if (query && !titleMatchesQuery(recipe.title, query)) continue;
+    rows.push({ recipe, match: { score: 0, missing: 0, fullyCovered: false } });
   }
-  if (state.have.length) {
-    rows.sort((a, b) => b.match.score - a.match.score || a.match.missing - b.match.missing);
-  } else if (state.sort === "az") {
+  if (state.sort === "az") {
     rows.sort((a, b) => a.recipe.title.localeCompare(b.recipe.title));
   } else if (state.sort === "za") {
     rows.sort((a, b) => b.recipe.title.localeCompare(a.recipe.title));
@@ -1134,11 +1166,7 @@ function filtered() {
 function renderGrid() {
   const rows = filtered();
   const countLabel = rows.length === 1 ? t("recipeCountOne", { n: rows.length }) : t("recipeCountOther", { n: rows.length });
-  if (state.have.length) {
-    els.status.textContent = t("closestFit", { count: countLabel });
-  } else {
-    els.status.textContent = countLabel;
-  }
+  els.status.textContent = countLabel;
   if (!rows.length) {
     els.grid.innerHTML = `<div class="empty">${escapeHtml(t("noMatch"))}</div>`;
     return;
@@ -1148,14 +1176,6 @@ function renderGrid() {
 
 function cardHtml({ recipe, match }) {
   const tags = [];
-  if (state.have.length) {
-    const label = match.fullyCovered
-      ? t("bestFit")
-      : match.missing
-        ? t("fitMissing", { pct: Math.round(match.score * 100), n: match.missing })
-        : t("fitPct", { pct: Math.round(match.score * 100) });
-    tags.unshift(`<span class="pill match">${escapeHtml(label)}</span>`);
-  }
   const favoriteActive = recipe.favorite ? " active" : "";
   const source = state.viewMode === "list"
     ? `<p class="card-source">${escapeHtml(recipeSourceLabel(recipe))}</p>`
@@ -1302,14 +1322,7 @@ function recipeHtml(recipe) {
     ? `<h3>${escapeHtml(t("notes"))}</h3><p class="notes-box">${escapeHtml(recipe.notes)}</p>`
     : "";
 
-  const missing = state.have.length ? missingIngredients(recipe) : [];
-  const pantryNote = !state.have.length
-    ? ""
-    : missing.length
-      ? `<div class="pantry-match missing">
-          <span>${escapeHtml(missing.length === 1 ? t("missingFromHaveOne", { n: missing.length, list: missing.join(", ") }) : t("missingFromHaveOther", { n: missing.length, list: missing.join(", ") }))}</span>
-        </div>`
-      : `<div class="pantry-match covered">${escapeHtml(t("haveEverything"))}</div>`;
+  const pantryNote = "";
 
   return `
     <div class="drawer-actions">
@@ -2787,15 +2800,8 @@ function setCupboardSegment(segment) {
   else renderInventory("cupboard");
 }
 
-// Debounced like iOS's DebouncedTextField — filtering the full list (plus
-// pantry matching against "what I have") on every single keystroke is
-// wasted work while the user is still typing. Drives both the recipe grid
-// and the "mark as something you have" suggestion row below the box — one
-// input, two jobs, rather than a separate search elsewhere for the second
-// one. (No Enter-to-add here, unlike the old dedicated pantry search: this
-// box's main job is finding a recipe by name, and a bare Enter shouldn't
-// silently file whatever you typed as a pantry item — tapping the "+ Add"
-// suggestion is an explicit, deliberate action instead.)
+// Debounced like iOS's DebouncedTextField — name search only, so a typo
+// check on titles stays cheap while the user is still typing.
 let searchDebounceTimer = null;
 els.search.addEventListener("input", () => {
   const value = els.search.value;
@@ -2803,7 +2809,6 @@ els.search.addEventListener("input", () => {
   searchDebounceTimer = setTimeout(() => {
     state.query = value;
     renderGrid();
-    renderSearchSuggest();
   }, 160);
 });
 

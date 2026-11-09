@@ -21,7 +21,6 @@ struct RecipeListView: View {
                 ListHeader(onAdd: onAdd, onSettings: onSettings)
                 SearchBlock(showFilters: $showFilters)
                 CourseFilterRow()
-                PantryBanner()
                 ClearFiltersRow()
                 ResultsSection(onAdd: onAdd)
             }
@@ -153,8 +152,6 @@ private struct SearchBlock: View {
 
     @Binding var showFilters: Bool
 
-    /// Ingredients aren't counted: they get their own visible row below, so
-    /// counting them here would show a badge for something already on screen.
     private var activeFilterCount: Int {
         [
             !store.tagFilters.isEmpty, store.favoritesOnly,
@@ -214,55 +211,9 @@ private struct SearchBlock: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(L("Toggle grid or list view"))
             }
-
-            let trimmed = store.query.trimmingCharacters(in: .whitespaces)
-            if !trimmed.isEmpty, !store.visiblePantryGroups.isEmpty || store.canAddTypedPantryItem(trimmed) {
-                pantrySuggestionRow(trimmed)
-            }
         }
         .padding(.top, 18)
         .padding(.horizontal, Theme.screenPadding)
-    }
-
-    private func pantrySuggestionRow(_ trimmed: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Kicker(text: L("Filter by ingredient"), size: 10, color: Theme.neutral600)
-            FlowLayout(spacing: 8) {
-                ForEach(store.visiblePantryGroups.flatMap(\.items), id: \.self) { item in
-                    Button {
-                        store.toggleIngredient(item)
-                    } label: {
-                        Text("+ \(item)")
-                            .font(Theme.body(12.5, weight: .semibold))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .background(Theme.sage100)
-                            .foregroundStyle(Theme.sage800)
-                            .overlay(
-                                Capsule().strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                                    .foregroundStyle(Theme.sage400)
-                            )
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-                if store.canAddTypedPantryItem(trimmed) {
-                    Button {
-                        store.addHaveItem(trimmed)
-                    } label: {
-                        Text(L("+ Add “\(trimmed)”"))
-                            .font(Theme.body(12.5, weight: .semibold))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .background(Theme.accent100)
-                            .foregroundStyle(Theme.accent700)
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-        .padding(.top, 2)
     }
 }
 
@@ -284,56 +235,11 @@ private struct CourseFilterRow: View {
     }
 }
 
-// MARK: - Pantry banner
-
-private struct PantryBanner: View {
-    @Environment(RecipeStore.self) private var store
-
-    /// The empty check lives here rather than in an `if` at the call site so
-    /// that marking a pantry item re-renders this banner and the results,
-    /// not the whole screen.
-    var body: some View {
-        if !store.have.isEmpty {
-            banner
-        }
-    }
-
-    /// One removable chip per ingredient filter, same × pattern as the
-    /// Filters sheet's what-I-have card. No separate "Clear all" here — the
-    /// "Clear all filters" row just below already covers that.
-    private var banner: some View {
-        FlowLayout(spacing: 8) {
-            ForEach(store.have, id: \.self) { item in
-                Button {
-                    store.toggleIngredient(item)
-                } label: {
-                    Text("\(item) ×")
-                        .font(Theme.body(12.5, weight: .semibold))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(Theme.sage500)
-                        .foregroundStyle(.white)
-                        .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(L("Remove \(item)"))
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(Theme.sage100)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
-        .padding(.horizontal, Theme.screenPadding)
-        .padding(.top, 14)
-    }
-}
-
 // MARK: - Clear filters
 
-/// One tap back to the full list from search, course, tags, favorites and
-/// ingredients. Lives on the list because search and course are applied here,
-/// not only inside the Filters sheet.
+/// One tap back to the full list from search, course, tags, and favorites.
+/// Lives on the list because search and course are applied here, not only
+/// inside the Filters sheet.
 private struct ClearFiltersRow: View {
     @Environment(RecipeStore.self) private var store
 
@@ -595,10 +501,6 @@ struct FiltersSheet: View {
                         .font(Theme.display(30))
                         .foregroundStyle(Theme.ink)
 
-                    if !store.have.isEmpty {
-                        whatIHaveCard
-                    }
-
                     Button {
                         store.favoritesOnly.toggle()
                     } label: {
@@ -624,11 +526,6 @@ struct FiltersSheet: View {
                                     store.sortOption = option
                                 }
                             }
-                        }
-                        if !store.have.isEmpty {
-                            Text("Ignored while ingredient filters are active — closest fit comes first then.")
-                                .font(Theme.body(11.5))
-                                .foregroundStyle(Theme.neutral600)
                         }
                     }
 
@@ -671,41 +568,6 @@ struct FiltersSheet: View {
             }
         }
         .background(Theme.bg.ignoresSafeArea())
-    }
-
-    private var whatIHaveCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Kicker(text: L("Ingredients"), color: Theme.sage800)
-            if store.selectedPantryGroups.isEmpty {
-                Text("No ingredients selected.")
-                    .font(Theme.body(13))
-                    .foregroundStyle(Theme.sage800)
-            } else {
-                FlowLayout(spacing: 8) {
-                    ForEach(store.selectedPantryGroups.flatMap(\.items), id: \.self) { item in
-                        Button {
-                            store.toggleIngredient(item)
-                        } label: {
-                            Text("\(item) ×")
-                                .font(Theme.body(12.5, weight: .semibold))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 7)
-                                .background(Theme.sage500)
-                                .foregroundStyle(.white)
-                                .clipShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-            Text("Shows recipes that use all of these, ranked by fit. Type an ingredient in search to add one.")
-                .font(Theme.body(11.5))
-                .foregroundStyle(Theme.sage800.opacity(0.8))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .background(Theme.sage100)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
     }
 }
 

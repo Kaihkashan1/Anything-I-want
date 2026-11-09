@@ -35,8 +35,8 @@
     </nav>
     <div class="search-row" id="search-row">
       <label class="search">
-        <span class="visually-hidden" data-i18n="searchAria">Search recipes, or mark something you have</span>
-        <input id="search" type="search" data-i18n-placeholder="searchPlaceholder" placeholder="Search title, ingredient, tag… or mark what you have">
+        <span class="visually-hidden" data-i18n="searchAria">Search recipes by name</span>
+        <input id="search" type="search" data-i18n-placeholder="searchPlaceholder" placeholder="Search recipes">
       </label>
       <div class="filters-anchor">
         <button id="filters-btn" class="filters-btn" type="button" aria-haspopup="true" aria-expanded="false">
@@ -44,11 +44,6 @@
           <span data-i18n="filters">Filters</span>
         </button>
         <div id="filters-panel" class="filters-panel" hidden>
-          <section>
-            <h2 class="eyebrow" data-i18n="whatIHave">What I have</h2>
-            <p class="eyebrow" style="margin-bottom:0.6rem; text-transform:none; letter-spacing:normal;" data-i18n="whatIHaveHint">Sorts recipes by closest fit. Type an ingredient in the search box above to add one.</p>
-            <div id="have-chips"></div>
-          </section>
           <section>
             <h2 class="eyebrow" data-i18n="tag">Tag</h2>
             <div id="tag-filters" class="chips"></div>

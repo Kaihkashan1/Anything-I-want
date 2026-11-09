@@ -574,7 +574,7 @@ struct Recipe: Codable, Identifiable, Hashable {
         favorite = try container.decodeIfPresent(Bool.self, forKey: .favorite) ?? false
         notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
         photoURL = try container.decodeIfPresent(String.self, forKey: .photoURL)
-        searchBlob = ([title, course.rawValue] + tags + ingredients).joined(separator: " ").lowercased()
+        searchBlob = title.lowercased()
     }
 
     func encode(to encoder: Encoder) throws {
@@ -1048,6 +1048,26 @@ struct RecipeMatch: Equatable {
 
 private let staples: Set<String> = ["salt", "water", "oil", "pepper", "black pepper", "sugar"]
 
+/// Prep/state words stripped from pantry names so "chicken completely
+/// trimmed" clubs with "chicken". Kept in sync with app.match.PREP.
+private let pantryPrep: Set<String> = [
+    "chopped", "finely", "roughly", "minced", "sliced", "diced", "pulsed",
+    "cooked", "fresh", "freshly", "crushed", "mixed", "grated", "optional",
+    "large", "small", "medium", "ripe", "to", "taste", "as", "needed", "or",
+    "and", "for", "the", "a", "an", "of", "into", "with", "in", "on", "cut",
+    "raw", "inch", "inches", "size", "sized", "halved", "mini", "protein",
+    "few", "half", "couple", "little", "more", "med", "generous", "amount",
+    "loads", "packed", "required", "remaining", "reserved",
+    "deveined", "peeled", "marinated", "frozen", "king", "freshwater",
+    "trimmed", "trim", "completely", "complete", "cleaned", "clean", "washed",
+    "thawed", "defrosted", "beaten", "whisked", "softened", "melted",
+    "leftover", "leftovers", "drained", "soaked", "crumbled", "thinly",
+    "thickly", "excess", "well", "thoroughly", "lightly", "extra", "divided",
+    "deseeded", "seeded", "destemmed", "cored", "shredded", "julienned",
+    "mashed", "pureed", "puree", "blanched", "pounded", "scored",
+    "butterflied", "room", "temperature",
+]
+
 /// Cuts and shapes of a grocery item, not their own pantry entries.
 private let pantryForms: Set<String> = [
     "lollipop", "lollipops",
@@ -1084,8 +1104,10 @@ func collapsePantryItems(_ items: [String]) -> [String] {
 
 func collapsePantryName(_ name: String) -> String {
     let words = name.lowercased().split { !$0.isLetter }.map(String.init).filter { !$0.isEmpty }
-    let core = words.filter { !pantryForms.contains($0) }
-    let kept = core.isEmpty ? words : core
+    let withoutPrep = words.filter { !pantryPrep.contains($0) }
+    let source = withoutPrep.isEmpty ? words : withoutPrep
+    let core = source.filter { !pantryForms.contains($0) }
+    let kept = core.isEmpty ? source : core
     return kept.joined(separator: " ")
 }
 
@@ -1378,16 +1400,69 @@ func namesMatch(_ left: String, _ right: String) -> Bool {
     left == right || left.contains(right) || right.contains(left) || stem(left) == stem(right)
 }
 
-/// Prefix-only, unlike namesMatch's anywhere-substring check above: while
-/// someone is still typing, a bare substring match is too eager — "pra" is
-/// contained in "spray", so every "oil spray"/"cooking spray" item would
-/// show up in the live suggestion row for someone halfway through typing
-/// "prawn". Matching at the start of the item or of one of its words keeps
-/// suggestions relevant to what's actually been typed so far.
-func pantryQueryMatch(_ item: String, _ needle: String) -> Bool {
+/// Cookbook search is name-only. Substring first, then a small edit
+/// distance so "parata" still finds "Paratha".
+func recipeTitleMatches(_ title: String, query: String) -> Bool {
+    let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     guard !needle.isEmpty else { return true }
-    if item.hasPrefix(needle) || needle.hasPrefix(item) { return true }
-    return item.split(separator: " ").contains { $0.hasPrefix(needle) }
+    let folded = title.lowercased()
+    if folded.contains(needle) { return true }
+    let compactTitle = lettersOnly(folded)
+    let compactQuery = lettersOnly(needle)
+    if !compactQuery.isEmpty, compactTitle.contains(compactQuery) { return true }
+    let queryWords = alphaWords(needle)
+    let titleWords = alphaWords(folded)
+    if !queryWords.isEmpty, queryWords.allSatisfy({ wanted in
+        titleWords.contains { wordFuzzyMatch($0, wanted) }
+    }) {
+        return true
+    }
+    let allowed = typoAllowance(compactQuery.count)
+    return allowed > 0
+        && !compactQuery.isEmpty
+        && abs(compactTitle.count - compactQuery.count) <= allowed
+        && levenshtein(compactTitle, compactQuery) <= allowed
+}
+
+private func lettersOnly(_ text: String) -> String {
+    text.filter(\.isLetter)
+}
+
+private func alphaWords(_ text: String) -> [String] {
+    text.split { !$0.isLetter }.map(String.init).filter { !$0.isEmpty }
+}
+
+private func typoAllowance(_ length: Int) -> Int {
+    if length <= 2 { return 0 }
+    if length <= 5 { return 1 }
+    return 2
+}
+
+private func wordFuzzyMatch(_ word: String, _ needle: String) -> Bool {
+    if needle.isEmpty { return true }
+    if word.contains(needle) || word.hasPrefix(needle) || needle.hasPrefix(word) { return true }
+    let allowed = typoAllowance(needle.count)
+    guard allowed > 0, abs(word.count - needle.count) <= allowed else { return false }
+    return levenshtein(word, needle) <= allowed
+}
+
+private func levenshtein(_ left: String, _ right: String) -> Int {
+    if left == right { return 0 }
+    let a = Array(left)
+    let b = Array(right)
+    if a.isEmpty { return b.count }
+    if b.isEmpty { return a.count }
+    var prev = Array(0 ... b.count)
+    for i in 1 ... a.count {
+        var curr = [Int](repeating: 0, count: b.count + 1)
+        curr[0] = i
+        for j in 1 ... b.count {
+            let cost = a[i - 1] == b[j - 1] ? 0 : 1
+            curr[j] = min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost)
+        }
+        prev = curr
+    }
+    return prev[b.count]
 }
 
 /// True when the recipe's pantry stems cover every selected ingredient

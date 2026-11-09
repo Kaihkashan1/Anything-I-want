@@ -171,7 +171,6 @@ final class RecipeStore {
             || courseFilter != nil
             || !sourceFilters.isEmpty
             || favoritesOnly
-            || !have.isEmpty
     }
 
     /// Back to the full list in one tap. Ingredients go too — they narrow
@@ -184,9 +183,6 @@ final class RecipeStore {
         sourceFilters = []
         favoritesOnly = false
         sortOption = .recent
-        if !have.isEmpty {
-            setHave([])
-        }
     }
 
     /// Optimistic, like toggleFavorite: flips locally (so the UI is
@@ -611,65 +607,19 @@ final class RecipeStore {
             if let courseFilter, recipe.course != courseFilter { return false }
             if !recipe.matchesSourceFilter(sourceFilters) { return false }
             if needle.isEmpty { return true }
-            return recipe.searchBlob.contains(needle)
+            return recipeTitleMatches(recipe.title, query: needle)
         }
 
-        // Ingredient filters: keep recipes that use every selected name
-        // (AND), then rank by fit % (how much of that recipe the selection
-        // covers). Sort chips are ignored while filters are active.
-        var matches: [Int: RecipeMatch] = [:]
-        if !have.isEmpty {
-            rows = rows.filter { recipeMatchesIngredientFilter($0, ingredients: have) }
-            for recipe in rows {
-                matches[recipe.id] = matchRecipe(recipe, have: have)
-            }
-            rows.sort { lhs, rhs in
-                let left = matches[lhs.id]!
-                let right = matches[rhs.id]!
-                if left.score != right.score { return left.score > right.score }
-                return left.missingCount < right.missingCount
-            }
-        } else {
-            switch sortOption {
-            case .recent:
-                break // recipes already arrive newest-first from the server
-            case .az:
-                rows.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-            case .za:
-                rows.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedDescending }
-            }
+        switch sortOption {
+        case .recent:
+            break // recipes already arrive newest-first from the server
+        case .az:
+            rows.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        case .za:
+            rows.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedDescending }
         }
         visibleRecipes = rows
-        matchesByID = matches
-        updatePantry()
-    }
-
-    private func updatePantry() {
-        haveSet = Set(have)
-        let groups = resolvedPantryGroups
-        selectedPantryGroups = groups.compactMap { group in
-            let items = group.items.filter { haveSet.contains($0) }
-            return items.isEmpty ? nil : PantryGroup(category: group.category, items: items)
-        }
-
-        // Driven by the same search box as the recipe list (`query`), not a
-        // separate one — typing something that matches a known ingredient
-        // surfaces it as a suggestion right alongside the filtered recipe
-        // results, rather than needing a whole separate Pantry search.
-        // Gated behind actually typing something — as the cookbook grows,
-        // the full catalog is too long to skim, so this is a search, not a
-        // browsable list.
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !needle.isEmpty else {
-            visiblePantryGroups = []
-            return
-        }
-        visiblePantryGroups = groups.compactMap { group in
-            let items = group.items.filter { item in
-                !haveSet.contains(item) && pantryQueryMatch(item, needle)
-            }
-            return items.isEmpty ? nil : PantryGroup(category: group.category, items: items)
-        }
+        matchesByID = [:]
     }
 
     private func updateDerived() {

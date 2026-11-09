@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from app.match import canonical_ingredient, collapse_catalog, pantry_items
+from app.match import canonical_ingredient, collapse_catalog, pantry_items, title_matches_query
 
 
 class CanonicalIngredientTests(unittest.TestCase):
@@ -35,6 +35,11 @@ class CanonicalIngredientTests(unittest.TestCase):
         for text in ["deveined prawn", "freshwater prawn", "frozen king prawn", "marinated prawn", "prawn"]:
             self.assertEqual(canonical_ingredient(text), "prawn")
 
+    def test_collapses_trimmed_chicken_to_chicken(self):
+        self.assertEqual(canonical_ingredient("chicken completely trimmed"), "chicken")
+        self.assertEqual(canonical_ingredient("500g chicken, completely trimmed"), "chicken")
+        self.assertEqual(canonical_ingredient("leftover thawed chicken"), "chicken")
+
 
 class CollapseCatalogTests(unittest.TestCase):
     def test_folds_descriptive_variant_into_existing_entry(self):
@@ -57,6 +62,27 @@ class CollapseCatalogTests(unittest.TestCase):
     def test_unrelated_items_are_untouched(self):
         items = ["chicken", "garlic", "onion"]
         self.assertEqual(collapse_catalog(items), sorted(items))
+
+    def test_canonicalizes_stored_prep_phrases(self):
+        self.assertEqual(
+            collapse_catalog(["chicken completely trimmed", "garlic"]),
+            ["chicken", "garlic"],
+        )
+
+
+class TitleSearchTests(unittest.TestCase):
+    def test_substring_and_case(self):
+        self.assertTrue(title_matches_query("Butter Chicken", "chick"))
+        self.assertTrue(title_matches_query("Butter Chicken", "BUTTER"))
+
+    def test_typos(self):
+        self.assertTrue(title_matches_query("Aloo Paratha", "parata"))
+        self.assertTrue(title_matches_query("Butter Chicken", "buter chicken"))
+        self.assertTrue(title_matches_query("Butter Chicken", "chickn"))
+
+    def test_short_query_does_not_fuzzy_match_everything(self):
+        self.assertFalse(title_matches_query("Butter Chicken", "tr"))
+        self.assertFalse(title_matches_query("Aloo Paratha", "zz"))
 
 
 class PantryItemsTests(unittest.TestCase):

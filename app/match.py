@@ -213,6 +213,50 @@ PREP = {
     "frozen",
     "king",
     "freshwater",
+    # Prep/state that isn't a different grocery item — "chicken completely
+    # trimmed" and "leftover chicken, thawed" should both be "chicken",
+    # including on recipes imported later.
+    "trimmed",
+    "trim",
+    "completely",
+    "complete",
+    "cleaned",
+    "clean",
+    "washed",
+    "thawed",
+    "defrosted",
+    "beaten",
+    "whisked",
+    "softened",
+    "melted",
+    "leftover",
+    "leftovers",
+    "drained",
+    "soaked",
+    "crumbled",
+    "thinly",
+    "thickly",
+    "excess",
+    "well",
+    "thoroughly",
+    "lightly",
+    "extra",
+    "divided",
+    "deseeded",
+    "seeded",
+    "destemmed",
+    "cored",
+    "shredded",
+    "julienned",
+    "mashed",
+    "pureed",
+    "puree",
+    "blanched",
+    "pounded",
+    "scored",
+    "butterflied",
+    "room",
+    "temperature",
 }
 # Cuts and shapes of a grocery item, not their own pantry entries.
 # "chicken lollipop" and "chicken breast" should both be "chicken".
@@ -360,10 +404,20 @@ def collapse_catalog(items: list[str]) -> list[str]:
 
     Given a deduped, cross-recipe list of canonical ingredient names,
     returns the same set with entries like "spinach leaves" merged into
-    "spinach" when "spinach" is also present."""
-    item_set = set(items)
-    merged: set[str] = set()
+    "spinach" when "spinach" is also present. Re-runs canonical_ingredient
+    so leftover prep ("chicken completely trimmed") collapses even if it
+    was stored before those words were treated as filler."""
+    cleaned: list[str] = []
+    seen: set[str] = set()
     for item in items:
+        name = canonical_ingredient(item) or (item or "").strip().lower()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        cleaned.append(name)
+    item_set = set(cleaned)
+    merged: set[str] = set()
+    for item in cleaned:
         words = item.split()
         if len(words) > 1 and words[-1] in _CATALOG_DESCRIPTORS:
             shorter = " ".join(words[:-1])
@@ -372,6 +426,82 @@ def collapse_catalog(items: list[str]) -> list[str]:
                 continue
         merged.add(item)
     return sorted(merged, key=str.lower)
+
+
+def _letters_only(text: str) -> str:
+    return "".join(ch for ch in text.casefold() if ch.isalpha())
+
+
+def _alpha_words(text: str) -> list[str]:
+    return re.findall(r"[a-z]+", text.casefold())
+
+
+def _levenshtein(left: str, right: str) -> int:
+    if left == right:
+        return 0
+    if not left:
+        return len(right)
+    if not right:
+        return len(left)
+    prev = list(range(len(right) + 1))
+    for i, lch in enumerate(left, start=1):
+        curr = [i]
+        for j, rch in enumerate(right, start=1):
+            cost = 0 if lch == rch else 1
+            curr.append(min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost))
+        prev = curr
+    return prev[-1]
+
+
+def _typo_allowance(length: int) -> int:
+    if length <= 2:
+        return 0
+    if length <= 5:
+        return 1
+    return 2
+
+
+def _word_fuzzy_match(word: str, needle: str) -> bool:
+    if not needle:
+        return True
+    if needle in word or word.startswith(needle) or needle.startswith(word):
+        return True
+    allowed = _typo_allowance(len(needle))
+    if not allowed or abs(len(word) - len(needle)) > allowed:
+        return False
+    return _levenshtein(word, needle) <= allowed
+
+
+def title_matches_query(title: str, query: str) -> bool:
+    """Cookbook search is name-only. Exact/substring first, then a small
+    edit distance so "parata" still finds "Paratha" and "buter chicken"
+    finds "Butter Chicken"."""
+    needle = " ".join((query or "").split()).casefold()
+    if not needle:
+        return True
+    folded = (title or "").casefold()
+    if needle in folded:
+        return True
+    compact_title = _letters_only(title or "")
+    compact_query = _letters_only(query or "")
+    if compact_query and compact_query in compact_title:
+        return True
+    query_words = _alpha_words(needle)
+    title_words = _alpha_words(folded)
+    if query_words and all(
+        any(_word_fuzzy_match(word, wanted) for word in title_words)
+        for wanted in query_words
+    ):
+        return True
+    allowed = _typo_allowance(len(compact_query))
+    if (
+        allowed
+        and compact_query
+        and abs(len(compact_title) - len(compact_query)) <= allowed
+        and _levenshtein(compact_title, compact_query) <= allowed
+    ):
+        return True
+    return False
 
 
 def _names_match(left: str, right: str) -> bool:
