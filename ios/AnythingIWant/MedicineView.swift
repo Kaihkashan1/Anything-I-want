@@ -93,7 +93,7 @@ struct MedicineView: View {
 
     /// Same slot Cupboard's categories gear sits in — the "+" here instead,
     /// since there's no per-item toolbar row (no match-mode toggle to share
-    /// it with, unlike Cupboard's Items segment).
+    /// it with, unlike Cupboard's Groceries segment).
     private var header: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {

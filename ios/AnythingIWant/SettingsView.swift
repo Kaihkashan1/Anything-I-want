@@ -22,6 +22,7 @@ struct SettingsView: View {
     /// rather than showing a stale/fake number (same rule the backend
     /// follows for a missing Apify token, see GET /api/usage).
     @State private var usage: UsageStats?
+    @AppStorage(ExpiryNotifications.enabledKey) private var expiryReminders = true
 
     var body: some View {
         @Bindable var store = store
@@ -44,6 +45,8 @@ struct SettingsView: View {
                         .font(Theme.display(30))
                         .foregroundStyle(Theme.ink)
 
+                    expiryRemindersSection
+
                     if let usage {
                         importLimitsSection(usage)
                     }
@@ -65,6 +68,23 @@ struct SettingsView: View {
             } else {
                 importLogFailed = true
             }
+        }
+    }
+
+    private var expiryRemindersSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle(isOn: $expiryReminders) {
+                Text("Expiry reminders")
+                    .font(Theme.body(15, weight: .semibold))
+                    .foregroundStyle(Theme.ink)
+            }
+            .tint(Theme.accent)
+            .onChange(of: expiryReminders) { _, _ in
+                ExpiryNotifications.refresh(pantry: pantryStore.items, medicines: medicineStore.items)
+            }
+            Text("A reminder at 9am, 7 days before, 3 days before, and on the day something in the cupboard or medicine cabinet expires.")
+                .font(Theme.body(12.5))
+                .foregroundStyle(Theme.neutral600)
         }
     }
 

@@ -367,7 +367,7 @@ struct APIClient {
         try await decodeJSON(MedicinesResponse.self, from: get("/api/medicines"))
     }
 
-    func updateMedicines(items: [MedicineItem], secret: String) async throws -> MedicinesResponse {
+    func updateMedicines(items: [MedicineItem], categories: [String]? = nil, secret: String) async throws -> MedicinesResponse {
         guard let base = URL(string: trimmedBase),
               let url = URL(string: "/api/medicines", relativeTo: base)
         else { throw APIError.badURL }
@@ -380,7 +380,7 @@ struct APIClient {
         if !trimmedSecret.isEmpty {
             request.setValue(trimmedSecret, forHTTPHeaderField: "X-Recipe-Box-Key")
         }
-        request.httpBody = try JSONEncoder().encode(MedicinesResponse(items: items))
+        request.httpBody = try JSONEncoder().encode(MedicinesResponse(items: items, categories: categories))
 
         let data: Data
         let response: URLResponse

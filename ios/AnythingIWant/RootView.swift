@@ -188,6 +188,7 @@ struct RootView: View {
         }
         .task {
             await refreshCatalog(force: true)
+            scheduleExpiryReminders()
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
@@ -196,6 +197,13 @@ struct RootView: View {
             // to miss. In-flight work is coalesced in RecipeStore.refresh
             // (so this does not double the launch `.task`).
             Task { await refreshCatalog(force: true) }
+            scheduleExpiryReminders()
+        }
+        .onChange(of: pantryStore.items) { _, _ in
+            scheduleExpiryReminders()
+        }
+        .onChange(of: medicineStore.items) { _, _ in
+            scheduleExpiryReminders()
         }
         .onChange(of: connectivity.isOnline) { wasOnline, isOnline in
             guard isOnline, !wasOnline else { return }
@@ -211,6 +219,10 @@ struct RootView: View {
 
     private var refreshErrorMessage: String? {
         store.lastRefreshError ?? pantryStore.lastRefreshError ?? medicineStore.lastRefreshError
+    }
+
+    private func scheduleExpiryReminders() {
+        ExpiryNotifications.refresh(pantry: pantryStore.items, medicines: medicineStore.items)
     }
 
     private var photoImportStatus: BackgroundImportJob.Status? {

@@ -2,9 +2,8 @@ import Foundation
 import Observation
 
 /// The Medicines tab — same shape as PantryStore (Cupboard) but for
-/// MedicineItem, and without Cupboard's to-buy list or custom-category CRUD
-/// (medicine categories are a fixed list the server returns, not something
-/// the client edits).
+/// MedicineItem, without Cupboard's to-buy list. Categories start from the
+/// server defaults and can be added, renamed, or deleted like cupboard groups.
 @Observable @MainActor
 final class MedicineStore {
     var items: [MedicineItem] = [] {
@@ -40,7 +39,8 @@ final class MedicineStore {
     private(set) var groupedItems: [(category: String, items: [MedicineItem])] = []
 
     private func rebuildGroups() {
-        groupedItems = categories.compactMap { name in
+        let names = mergeMedicineCategories(stored: categories, itemCategories: items.map(\.category))
+        groupedItems = names.compactMap { name in
             let rows = items.filter { $0.category.caseInsensitiveCompare(name) == .orderedSame }
                 .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             guard !rows.isEmpty else { return nil }
@@ -103,7 +103,10 @@ final class MedicineStore {
     private func fetchOnce() async -> Bool {
         do {
             let payload = try await APIClient(baseURLString: serverURL).fetchMedicines()
-            let nextCategories = payload.categories?.isEmpty == false ? payload.categories! : categories
+            let nextCategories = mergeMedicineCategories(
+                stored: payload.categories ?? [],
+                itemCategories: payload.items.map(\.category)
+            )
             if items != payload.items { items = payload.items }
             if categories != nextCategories { categories = nextCategories }
             lastSuccessfulRefresh = Date()
@@ -121,32 +124,101 @@ final class MedicineStore {
         } else {
             next.append(item)
         }
-        replaceInventory(next)
+        var nextCategories = categories
+        if let name = normalizeMedicineCategoryName(item.category),
+           !nextCategories.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) {
+            if let other = nextCategories.firstIndex(where: { $0.caseInsensitiveCompare("Other") == .orderedSame }) {
+                nextCategories.insert(name, at: other)
+            } else {
+                nextCategories.append(name)
+            }
+        }
+        replaceInventory(next, categories: nextCategories)
     }
 
     func deleteItem(id: String) {
-        replaceInventory(items.filter { $0.id != id })
+        replaceInventory(items.filter { $0.id != id }, categories: categories)
     }
 
-    private func replaceInventory(_ next: [MedicineItem]) {
-        let previous = items
+    func addCategory(_ raw: String) {
+        guard let name = normalizeMedicineCategoryName(raw) else { return }
+        if categories.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) {
+            return
+        }
+        guard categories.count < maxMedicineCategories else { return }
+        var next = categories
+        if let other = next.firstIndex(where: { $0.caseInsensitiveCompare("Other") == .orderedSame }) {
+            next.insert(name, at: other)
+        } else {
+            next.append(name)
+        }
+        replaceInventory(items, categories: next)
+    }
+
+    func renameCategory(_ from: String, to raw: String) {
+        guard !isLockedMedicineCategory(from) else { return }
+        guard let name = normalizeMedicineCategoryName(raw) else { return }
+        guard let index = categories.firstIndex(where: { $0.caseInsensitiveCompare(from) == .orderedSame }) else { return }
+        if categories.contains(where: {
+            $0.caseInsensitiveCompare(name) == .orderedSame
+                && $0.caseInsensitiveCompare(from) != .orderedSame
+        }) {
+            return
+        }
+        var next = categories
+        next[index] = name
+        let nextItems = items.map { item -> MedicineItem in
+            guard item.category.caseInsensitiveCompare(from) == .orderedSame else { return item }
+            var moved = item
+            moved.category = name
+            return moved
+        }
+        replaceInventory(nextItems, categories: next)
+    }
+
+    func deleteCategory(_ name: String) {
+        guard !isLockedMedicineCategory(name) else { return }
+        let remaining = categories.filter { $0.caseInsensitiveCompare(name) != .orderedSame }
+        guard remaining != categories else { return }
+        let fallback = remaining.first(where: { $0.caseInsensitiveCompare("Other") == .orderedSame })
+            ?? remaining.first
+            ?? "Other"
+        let nextCategories = remaining.isEmpty ? ["Other"] : remaining
+        let nextItems = items.map { item -> MedicineItem in
+            guard item.category.caseInsensitiveCompare(name) == .orderedSame else { return item }
+            var moved = item
+            moved.category = fallback
+            return moved
+        }
+        replaceInventory(nextItems, categories: nextCategories)
+    }
+
+    private func replaceInventory(_ next: [MedicineItem], categories nextCategories: [String]) {
+        let previousItems = items
+        let previousCategories = categories
         items = next
+        categories = mergeMedicineCategories(stored: nextCategories, itemCategories: next.map(\.category))
         persistCache()
-        let snapshot = items
+        let snapshotItems = items
+        let snapshotCategories = categories
         Task {
             do {
                 let confirmed = try await APIClient(baseURLString: serverURL)
-                    .updateMedicines(items: snapshot, secret: serverSecret)
-                if items == snapshot {
+                    .updateMedicines(items: snapshotItems, categories: snapshotCategories, secret: serverSecret)
+                if items == snapshotItems, categories == snapshotCategories {
                     items = confirmed.items
                     if let remote = confirmed.categories, !remote.isEmpty {
-                        categories = remote
+                        categories = mergeMedicineCategories(
+                            stored: remote,
+                            itemCategories: confirmed.items.map(\.category)
+                        )
                     }
                     persistCache()
                 }
             } catch {
-                if items == snapshot {
-                    items = previous
+                if items == snapshotItems, categories == snapshotCategories {
+                    items = previousItems
+                    categories = previousCategories
                     persistCache()
                 }
                 actionError = error.localizedDescription

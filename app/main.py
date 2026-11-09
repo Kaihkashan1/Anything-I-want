@@ -38,12 +38,12 @@ from app.models import (
 )
 from app.pipeline import jobs, process_recipe
 from app.store import (
-    MEDICINE_CATEGORIES,
     add_to_buy_source,
     create_recipe,
     delete_recipe,
     get_gemini_reads_today,
     get_have_items,
+    get_medicine_categories,
     get_medicines,
     get_pantry_categories,
     get_pantry_inventory,
@@ -337,14 +337,15 @@ async def api_remove_to_buy_source(body: ToBuySourceChange):
 @app.get("/api/medicines")
 async def api_get_medicines():
     """The Medicines-tab cabinet — a sibling of /api/pantry-inventory with
-    its own fields (dosage, prescriber, purpose) and a fixed category list
-    instead of the grocery aisle taxonomy."""
-    return {"items": get_medicines(), "categories": list(MEDICINE_CATEGORIES)}
+    its own fields (purpose, expiry) and a client-editable category list
+    that starts from MEDICINE_CATEGORIES."""
+    return {"items": get_medicines(), "categories": get_medicine_categories()}
 
 
 @app.put("/api/medicines", dependencies=[Depends(require_secret)])
 async def api_put_medicines(body: MedicinesUpdate):
-    return {"items": save_medicines(body.items), "categories": list(MEDICINE_CATEGORIES)}
+    items, categories = save_medicines(body.items, body.categories)
+    return {"items": items, "categories": categories}
 
 
 @app.get("/api/usage", dependencies=[Depends(require_secret)])

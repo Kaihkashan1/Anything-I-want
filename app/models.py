@@ -220,9 +220,9 @@ class ToBuySourceChange(BaseModel):
 # I have in stock" shape as PantryItem (amount/unit/status/expiry) rather
 # than a dosage tracker — no dosage/frequency/prescriber fields. `status`
 # reuses PantryStatus's open/unopened meaning (has this strip/bottle been
-# started). Categories are a fixed list (app.store.MEDICINE_CATEGORIES),
-# not inferred from the name the way grocery aisles are — there's no
-# reliable keyword map from a medicine's name to "Pain relief" vs "Allergy".
+# started). Categories start as app.store.MEDICINE_CATEGORIES and the
+# client can add more (persisted as `medicine_categories`) — they are not
+# inferred from the name the way grocery aisles are.
 MedicineUnit = Literal["pills", "ml", "mg", "pcs"]
 
 
@@ -240,6 +240,7 @@ class MedicineItem(BaseModel):
 
 class MedicinesUpdate(BaseModel):
     items: list[MedicineItem] = Field(default_factory=list)
+    categories: list[str] | None = None
 
 
 class RecipeCategory(BaseModel):

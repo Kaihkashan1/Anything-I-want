@@ -36,6 +36,7 @@
 		A20000000000000000000043 /* MedicineItemSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000033 /* MedicineItemSheet.swift */; };
 		A20000000000000000000044 /* ToBuyItemSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000034 /* ToBuyItemSheet.swift */; };
 		A20000000000000000000045 /* ShopView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000035 /* ShopView.swift */; };
+		A20000000000000000000046 /* ExpiryNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000036 /* ExpiryNotifications.swift */; };
 		A40000000000000000000002 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A40000000000000000000001 /* Localizable.xcstrings */; };
 		A40000000000000000000004 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A40000000000000000000003 /* InfoPlist.xcstrings */; };
 /* End PBXBuildFile section */
@@ -71,6 +72,7 @@
 		A20000000000000000000033 /* MedicineItemSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicineItemSheet.swift; sourceTree = "<group>"; };
 		A20000000000000000000034 /* ToBuyItemSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToBuyItemSheet.swift; sourceTree = "<group>"; };
 		A20000000000000000000035 /* ShopView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShopView.swift; sourceTree = "<group>"; };
+		A20000000000000000000036 /* ExpiryNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpiryNotifications.swift; sourceTree = "<group>"; };
 		A40000000000000000000001 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		A40000000000000000000003 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -113,6 +115,7 @@
 				A20000000000000000000033 /* MedicineItemSheet.swift */,
 				A20000000000000000000034 /* ToBuyItemSheet.swift */,
 				A20000000000000000000035 /* ShopView.swift */,
+				A20000000000000000000036 /* ExpiryNotifications.swift */,
 				A2000000000000000000000D /* Assets.xcassets */,
 				A40000000000000000000001 /* Localizable.xcstrings */,
 				A40000000000000000000003 /* InfoPlist.xcstrings */,
@@ -272,6 +275,7 @@
 				A20000000000000000000043 /* MedicineItemSheet.swift in Sources */,
 				A20000000000000000000044 /* ToBuyItemSheet.swift in Sources */,
 				A20000000000000000000045 /* ShopView.swift in Sources */,
+				A20000000000000000000046 /* ExpiryNotifications.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

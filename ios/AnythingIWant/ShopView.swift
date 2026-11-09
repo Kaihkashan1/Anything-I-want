@@ -33,7 +33,7 @@ struct ShopView: View {
     }
 
     private enum ShopSegment: String, CaseIterable, Identifiable {
-        case groceries = "Items"
+        case groceries = "Groceries"
         case medicines = "Medicines"
         case takeToIndia = "Take to India"
         case bringToGermany = "Bring to Germany"

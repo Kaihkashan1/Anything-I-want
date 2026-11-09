@@ -17,7 +17,7 @@ struct PantryView: View {
     @State private var requestMedicineAdd = false
 
     private enum CupboardSegment: String, CaseIterable, Identifiable {
-        case groceries = "Items"
+        case groceries = "Groceries"
         case medicines = "Medicines"
         var id: String { rawValue }
         var localizedName: String {
@@ -29,12 +29,14 @@ struct PantryView: View {
         case addItem
         case editItem(PantryItem)
         case categories
+        case medicineCategories
 
         var id: String {
             switch self {
             case .addItem: "addItem"
             case .editItem(let item): "edit-\(item.id)"
             case .categories: "categories"
+            case .medicineCategories: "medicineCategories"
             }
         }
     }
@@ -104,6 +106,9 @@ struct PantryView: View {
         case .categories:
             CupboardCategoriesSheet()
                 .environment(pantry)
+        case .medicineCategories:
+            MedicineCategoriesSheet()
+                .environment(medicines)
         }
     }
 
@@ -123,12 +128,10 @@ struct PantryView: View {
             }
             Spacer()
             HStack(spacing: 8) {
-                if segment == .groceries {
-                    CircleIconButton(lucide: .gear) {
-                        presentedSheet = .categories
-                    }
-                    .accessibilityLabel(L("Cupboard categories"))
+                CircleIconButton(lucide: .gear) {
+                    presentedSheet = segment == .groceries ? .categories : .medicineCategories
                 }
+                .accessibilityLabel(segment == .groceries ? L("Cupboard categories") : L("Medicine categories"))
 
                 Button {
                     if segment == .groceries {
@@ -547,6 +550,127 @@ struct CupboardCategoriesSheet: View {
 
     private func addCategoryFromField() {
         pantry.addCategory(newCategory)
+        newCategory = ""
+    }
+}
+
+/// Add, rename, and delete medicine groups — opened from the Cupboard gear
+/// on the Medicines segment.
+struct MedicineCategoriesSheet: View {
+    @Environment(MedicineStore.self) private var medicines
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var newCategory = ""
+    @State private var categoryToDelete: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Capsule()
+                .fill(Theme.neutral300)
+                .frame(width: 44, height: 5)
+                .padding(.top, 12)
+                .padding(.bottom, 16)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Categories")
+                        .font(Theme.display(22))
+                        .foregroundStyle(Theme.ink)
+
+                    VStack(alignment: .leading, spacing: 9) {
+                        ForEach(medicines.categories, id: \.self) { name in
+                            CategoryRenameRow(
+                                name: name,
+                                locked: isLockedMedicineCategory(name),
+                                onRename: { medicines.renameCategory(name, to: $0) },
+                                onDelete: { categoryToDelete = name }
+                            )
+                        }
+                    }
+
+                    Text("Deleting a category moves its items to \"Other\".")
+                        .font(Theme.body(12))
+                        .foregroundStyle(Theme.neutral600)
+
+                    HStack(spacing: 9) {
+                        TextField(L("New category"), text: $newCategory)
+                            .font(Theme.body(14.5))
+                            .textInputAutocapitalization(.words)
+                            .padding(.horizontal, 18)
+                            .frame(height: 48)
+                            .background(Theme.surface)
+                            .overlay(Capsule().strokeBorder(Theme.divider, lineWidth: 1))
+                            .clipShape(Capsule())
+                            .onSubmit(addCategoryFromField)
+
+                        Button(action: addCategoryFromField) {
+                            LucideIcon(.plus, size: 18)
+                                .foregroundStyle(Theme.bg)
+                                .frame(width: 48, height: 48)
+                                .background(canAddCategory ? Theme.accent : Theme.neutral400)
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!canAddCategory)
+                        .accessibilityLabel(L("Add category"))
+                    }
+
+                    Button {
+                        dismiss()
+                    } label: {
+                        Text("Done")
+                            .font(Theme.display(15))
+                            .foregroundStyle(Theme.bg)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 15)
+                            .background(Theme.accent)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 4)
+                    .accessibilityLabel(L("Done"))
+                }
+                .padding(.horizontal, Theme.screenPadding)
+                .padding(.bottom, 36)
+            }
+        }
+        .background(Theme.bg.ignoresSafeArea())
+        .alert(
+            L("Delete \(categoryToDelete ?? "")?"),
+            isPresented: Binding(
+                get: { categoryToDelete != nil },
+                set: { shown in if !shown { categoryToDelete = nil } }
+            )
+        ) {
+            Button(L("Cancel"), role: .cancel) { categoryToDelete = nil }
+            Button(L("Delete"), role: .destructive) {
+                if let name = categoryToDelete {
+                    medicines.deleteCategory(name)
+                }
+                categoryToDelete = nil
+            }
+        } message: {
+            Text(L("Items in this category will move to \(deleteFallbackName)."))
+        }
+    }
+
+    private var deleteFallbackName: String {
+        let removing = categoryToDelete ?? ""
+        return medicines.categories.first {
+            $0.caseInsensitiveCompare(removing) != .orderedSame
+                && $0.caseInsensitiveCompare("Other") == .orderedSame
+        }
+            ?? medicines.categories.first { $0.caseInsensitiveCompare(removing) != .orderedSame }
+            ?? "Other"
+    }
+
+    private var canAddCategory: Bool {
+        normalizeMedicineCategoryName(newCategory) != nil
+            && medicines.categories.count < maxMedicineCategories
+    }
+
+    private func addCategoryFromField() {
+        medicines.addCategory(newCategory)
         newCategory = ""
     }
 }

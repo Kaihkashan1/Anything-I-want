@@ -1842,10 +1842,16 @@ async function loadInventory(kind) {
 
 async function putInventory(kind, items) {
   const config = INVENTORY_KINDS[kind];
+  const body = { items };
+  if (kind === "medicine") {
+    body.categories = state.medicineCategories.length
+      ? state.medicineCategories
+      : DEFAULT_MEDICINE_CATEGORIES;
+  }
   const response = await fetch(config.apiPath, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ items }),
+    body: JSON.stringify(body),
   });
   if (!response.ok) throw await errorForResponse(response);
   return response.json();
@@ -1992,6 +1998,35 @@ document.addEventListener("input", (event) => {
   if (field.dataset.action === "to-buy-notes") setToBuyNotes(field.dataset.id, field.value);
 });
 
+document.addEventListener("change", (event) => {
+  if (event.target?.id === "medicine-category") syncMedicineNewCategoryField();
+});
+
+function syncMedicineNewCategoryField() {
+  const select = document.getElementById("medicine-category");
+  const wrap = document.getElementById("medicine-category-new-wrap");
+  const input = document.getElementById("medicine-category-new");
+  if (!select || !wrap) return;
+  const isNew = select.value === "__new__";
+  wrap.hidden = !isNew;
+  if (isNew) input?.focus();
+}
+
+function addMedicineCategoryName(raw) {
+  const name = String(raw || "").trim().replace(/\s+/g, " ").slice(0, 40);
+  if (!name) return null;
+  const list = state.medicineCategories.length
+    ? [...state.medicineCategories]
+    : [...DEFAULT_MEDICINE_CATEGORIES];
+  const existing = list.find((category) => category.toLowerCase() === name.toLowerCase());
+  if (existing) return existing;
+  const other = list.findIndex((category) => category.toLowerCase() === "other");
+  if (other >= 0) list.splice(other, 0, name);
+  else list.push(name);
+  state.medicineCategories = list;
+  return name;
+}
+
 function openAddInventoryItem(kind) {
   state.openRecipeId = null;
   state.editingId = null;
@@ -2109,7 +2144,11 @@ function medicineFormHtml(item) {
       </label>
       <label class="field">
         <span>${escapeHtml(t("category"))}</span>
-        <select id="medicine-category">${categoryOptionsHtml(categories, category)}</select>
+        <select id="medicine-category">${categoryOptionsHtml(categories, category)}<option value="__new__">${escapeHtml(t("addCategory"))}</option></select>
+      </label>
+      <label class="field" id="medicine-category-new-wrap" hidden>
+        <span>${escapeHtml(t("newCategory"))}</span>
+        <input id="medicine-category-new" placeholder="${escapeAttr(t("newCategory"))}">
       </label>
       <label class="field">
         <span>${escapeHtml(t("amount"))}</span>
@@ -2142,10 +2181,15 @@ function medicineFormHtml(item) {
 function saveAddOrEditMedicine() {
   const name = document.getElementById("medicine-name").value.trim();
   if (!name) return;
+  const selected = document.getElementById("medicine-category").value;
+  const category = selected === "__new__"
+    ? addMedicineCategoryName(document.getElementById("medicine-category-new")?.value)
+    : selected;
+  if (!category) return;
   const item = {
     id: document.getElementById("medicine-id").value || `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     name,
-    category: document.getElementById("medicine-category").value || "Other",
+    category,
     amount: Number(document.getElementById("medicine-amount").value) || 1,
     unit: document.getElementById("medicine-unit").value,
     status: document.getElementById("medicine-status").value,

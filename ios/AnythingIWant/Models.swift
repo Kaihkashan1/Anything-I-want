@@ -146,10 +146,8 @@ struct PantryItem: Codable, Hashable, Identifiable {
 /// extra field for what the medicine is for. No dosage/frequency/prescriber
 /// fields: this tracks stock, not a treatment plan. `status` reuses
 /// PantryItemStatus's open/unopened meaning (has this strip/bottle been
-/// started). Categories are a fixed list from the server
-/// (app.store.MEDICINE_CATEGORIES) rather than something the client can
-/// add/rename/delete — there's no reliable way to infer "Pain relief" vs
-/// "Allergy" from a name the way grocery aisles can be inferred.
+/// started). Categories start from the server defaults and the client can
+/// add/rename/delete them (Other stays locked).
 let defaultMedicineCategories = [
     "Pain relief",
     "Fever & cold",
@@ -164,6 +162,43 @@ let defaultMedicineCategories = [
     "Prescription",
     "Other",
 ]
+let maxMedicineCategories = 32
+let maxMedicineCategoryLength = 40
+
+func isLockedMedicineCategory(_ name: String) -> Bool {
+    name.trimmingCharacters(in: .whitespacesAndNewlines)
+        .caseInsensitiveCompare("Other") == .orderedSame
+}
+
+func normalizeMedicineCategoryName(_ raw: String) -> String? {
+    let collapsed = raw
+        .split(separator: " ")
+        .joined(separator: " ")
+    guard !collapsed.isEmpty else { return nil }
+    let clipped = collapsed.count > maxMedicineCategoryLength
+        ? String(collapsed.prefix(maxMedicineCategoryLength)).trimmingCharacters(in: .whitespaces)
+        : collapsed
+    return clipped.isEmpty ? nil : clipped
+}
+
+func mergeMedicineCategories(stored: [String], itemCategories: [String]) -> [String] {
+    var names: [String] = []
+    var seen = Set<String>()
+    let source = stored.isEmpty ? defaultMedicineCategories : stored
+    for raw in source + itemCategories {
+        guard let name = normalizeMedicineCategoryName(raw) else { continue }
+        let key = name.lowercased()
+        guard !seen.contains(key) else { continue }
+        seen.insert(key)
+        names.append(name)
+        if names.count >= maxMedicineCategories { break }
+    }
+    let rest = names.filter { $0.caseInsensitiveCompare("Other") != .orderedSame }
+    let clipped = rest.count >= maxMedicineCategories
+        ? Array(rest.prefix(maxMedicineCategories - 1))
+        : rest
+    return clipped + ["Other"]
+}
 
 enum MedicineUnit: String, CaseIterable, Identifiable, Codable {
     case pills, ml, mg, pcs

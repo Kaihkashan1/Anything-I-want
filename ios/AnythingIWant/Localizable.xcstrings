@@ -649,6 +649,24 @@
     "Groceries" : {
       "extractionState" : "manual"
     },
+    "Expiring soon" : {
+      "extractionState" : "manual"
+    },
+    "Expiry reminders" : {
+      "extractionState" : "manual"
+    },
+    "A reminder at 9am, 7 days before, 3 days before, and on the day something in the cupboard or medicine cabinet expires." : {
+      "extractionState" : "manual"
+    },
+    "%@ expires today." : {
+      "extractionState" : "manual"
+    },
+    "%@ expires in %lld days." : {
+      "extractionState" : "manual"
+    },
+    "Medicine categories" : {
+      "extractionState" : "manual"
+    },
     "Items" : {
       "extractionState" : "manual"
     },

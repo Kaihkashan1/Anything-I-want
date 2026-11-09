@@ -361,9 +361,11 @@ def save_pantry_inventory(items: list, categories: list[str] | None = None) -> d
 
 # Medicine cabinet — its own AppState key, same read/normalize/write shape
 # as pantry_inventory above. Unlike groceries, there's no reliable way to
-# infer "Pain relief" vs "Allergy" from a medicine's name, so this is a
-# fixed category list the client picks from (falling back to "Other")
-# rather than something derived via pantry_category()/canonical_ingredient.
+# infer "Pain relief" vs "Allergy" from a medicine's name, so categories
+# start as this default list and the client can add/rename/delete them
+# (persisted as `medicine_categories`). Unknown names on an item are kept
+# rather than slammed to Other, so a newly typed category survives the
+# first save even if the categories array hasn't caught up yet.
 MEDICINE_CATEGORIES: tuple[str, ...] = (
     "Pain relief",
     "Fever & cold",
@@ -378,15 +380,52 @@ MEDICINE_CATEGORIES: tuple[str, ...] = (
     "Prescription",
     "Other",
 )
-_MEDICINE_CATEGORY_BY_LOWER = {name.casefold(): name for name in MEDICINE_CATEGORIES}
+_MAX_MEDICINE_CATEGORY_LENGTH = 40
+_MAX_MEDICINE_CATEGORIES = 32
 
 
-def _medicine_category(raw) -> str:
+def _normalize_medicine_category_name(raw) -> str | None:
     text = " ".join(str(raw or "").split())
-    return _MEDICINE_CATEGORY_BY_LOWER.get(text.casefold(), "Other")
+    if not text:
+        return None
+    if len(text) > _MAX_MEDICINE_CATEGORY_LENGTH:
+        text = text[:_MAX_MEDICINE_CATEGORY_LENGTH].rstrip()
+    return text or None
 
 
-def _normalize_medicine_item(raw: dict) -> dict | None:
+def merge_medicine_categories(stored, item_categories) -> list[str]:
+    source = list(stored) if stored else list(MEDICINE_CATEGORIES)
+    names: list[str] = []
+    seen: set[str] = set()
+    extra = item_categories or []
+    for raw in list(source) + list(extra):
+        name = _normalize_medicine_category_name(raw)
+        if not name:
+            continue
+        key = name.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        names.append(name)
+        if len(names) >= _MAX_MEDICINE_CATEGORIES:
+            break
+    rest = [name for name in names if name.casefold() != "other"]
+    if len(rest) >= _MAX_MEDICINE_CATEGORIES:
+        rest = rest[: _MAX_MEDICINE_CATEGORIES - 1]
+    return rest + ["Other"]
+
+
+def _medicine_category(raw, allowed: list[str]) -> str:
+    text = _normalize_medicine_category_name(raw)
+    if not text:
+        return "Other"
+    by_lower = {name.casefold(): name for name in allowed}
+    if text.casefold() in by_lower:
+        return by_lower[text.casefold()]
+    return text
+
+
+def _normalize_medicine_item(raw: dict, allowed: list[str] | None = None) -> dict | None:
     name = str(raw.get("name") or "").strip()
     if not name:
         return None
@@ -403,7 +442,8 @@ def _normalize_medicine_item(raw: dict) -> dict | None:
         amount = 1.0
     if amount <= 0:
         amount = 1.0
-    category = _medicine_category(raw.get("category"))
+    names = allowed if allowed else list(MEDICINE_CATEGORIES)
+    category = _medicine_category(raw.get("category"), names)
     expiry = _normalize_expiry(raw.get("expiry"))
     return {
         "id": item_id,
@@ -418,33 +458,63 @@ def _normalize_medicine_item(raw: dict) -> dict | None:
     }
 
 
+def _medicine_state_categories(state: dict, raw_items: list) -> list[str]:
+    item_cats = [
+        raw.get("category") for raw in raw_items if isinstance(raw, dict)
+    ]
+    return merge_medicine_categories(state.get("medicine_categories"), item_cats)
+
+
+def get_medicine_categories() -> list[str]:
+    state = _read_app_state()
+    raw_items = state.get("medicines") or []
+    if not isinstance(raw_items, list):
+        raw_items = []
+    return _medicine_state_categories(state, raw_items)
+
+
 def get_medicines() -> list[dict]:
-    raw_items = _read_app_state().get("medicines") or []
+    state = _read_app_state()
+    raw_items = state.get("medicines") or []
+    if not isinstance(raw_items, list):
+        raw_items = []
+    names = _medicine_state_categories(state, raw_items)
     cleaned: list[dict] = []
     for raw in raw_items:
         if not isinstance(raw, dict):
             continue
-        item = _normalize_medicine_item(raw)
+        item = _normalize_medicine_item(raw, allowed=names)
         if item:
             cleaned.append(item)
     return cleaned
 
 
-def save_medicines(items: list) -> list[dict]:
-    cleaned: list[dict] = []
-    seen_ids: set[str] = set()
+def save_medicines(items: list, categories: list | None = None) -> tuple[list[dict], list[str]]:
+    stored = _read_app_state().get("medicine_categories")
+    incoming: list[dict] = []
+    incoming_cats: list = []
     for raw in items:
         if hasattr(raw, "model_dump"):
             raw = raw.model_dump()
         if not isinstance(raw, dict):
             continue
-        item = _normalize_medicine_item(raw)
+        incoming.append(raw)
+        incoming_cats.append(raw.get("category"))
+    names = merge_medicine_categories(
+        categories if categories else stored,
+        incoming_cats,
+    )
+    cleaned: list[dict] = []
+    seen_ids: set[str] = set()
+    for raw in incoming:
+        item = _normalize_medicine_item(raw, allowed=names)
         if not item or item["id"] in seen_ids:
             continue
         seen_ids.add(item["id"])
         cleaned.append(item)
-    _write_app_state(medicines=cleaned)
-    return cleaned
+    names = merge_medicine_categories(names, [item["category"] for item in cleaned])
+    _write_app_state(medicines=cleaned, medicine_categories=names)
+    return cleaned, names
 
 
 _UNICODE_FRACTIONS = {

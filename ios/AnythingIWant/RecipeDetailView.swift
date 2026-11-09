@@ -267,10 +267,12 @@ struct RecipeDetailView: View {
                     if !recipe.notes.isEmpty {
                         notesSection(for: recipe)
                     }
-                    if !recipe.tags.isEmpty {
-                        tags(for: recipe)
+                    VStack(alignment: .leading, spacing: 10) {
+                        if !recipe.tags.isEmpty {
+                            tags(for: recipe)
+                        }
+                        sourceLine(for: recipe)
                     }
-                    sourceLine(for: recipe)
                     originalPhoto(for: recipe)
                 }
                 .padding(Theme.screenPadding)
@@ -365,6 +367,8 @@ struct RecipeDetailView: View {
                 .buttonStyle(.plain)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     /// "From Instagram" — deliberately the least prominent thing on the
@@ -614,22 +618,33 @@ struct FlowLayout: Layout {
     var spacing: CGFloat = 8
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        arrange(proposal: proposal, subviews: subviews).size
+        let result = arrange(maxWidth: wrappingWidth(proposal.width), subviews: subviews)
+        if let proposedWidth = proposal.width, proposedWidth.isFinite {
+            return CGSize(width: proposedWidth, height: result.size.height)
+        }
+        return result.size
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let result = arrange(proposal: ProposedViewSize(width: bounds.width, height: bounds.height), subviews: subviews)
+        let result = arrange(maxWidth: bounds.width, subviews: subviews)
         for (index, origin) in result.origins.enumerated() {
             subviews[index].place(
                 at: CGPoint(x: bounds.minX + origin.x, y: bounds.minY + origin.y),
-                proposal: .unspecified
+                proposal: ProposedViewSize(result.sizes[index])
             )
         }
     }
 
-    private func arrange(proposal: ProposedViewSize, subviews: Subviews) -> (origins: [CGPoint], size: CGSize) {
-        let maxWidth = proposal.width ?? .infinity
+    private func wrappingWidth(_ proposed: CGFloat?) -> CGFloat {
+        guard let proposed, proposed.isFinite, proposed > 0 else {
+            return .infinity
+        }
+        return proposed
+    }
+
+    private func arrange(maxWidth: CGFloat, subviews: Subviews) -> (origins: [CGPoint], sizes: [CGSize], size: CGSize) {
         var origins: [CGPoint] = []
+        var sizes: [CGSize] = []
         var x: CGFloat = 0
         var y: CGFloat = 0
         var rowHeight: CGFloat = 0
@@ -643,11 +658,12 @@ struct FlowLayout: Layout {
                 rowHeight = 0
             }
             origins.append(CGPoint(x: x, y: y))
+            sizes.append(size)
             rowHeight = max(rowHeight, size.height)
             x += size.width + spacing
             width = max(width, x - spacing)
         }
 
-        return (origins, CGSize(width: width, height: y + rowHeight))
+        return (origins, sizes, CGSize(width: width, height: y + rowHeight))
     }
 }

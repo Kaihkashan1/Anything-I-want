@@ -365,14 +365,22 @@ class MedicineNormalizationTests(TestCase):
         item = _normalize_medicine_item({"name": "Cetirizine", "category": "allergy"})
         self.assertEqual(item["category"], "Allergy")
 
-    def test_unknown_category_falls_back_to_other_unlike_grocery_aisles(self):
+    def test_unknown_category_is_kept_so_custom_groups_can_be_added(self):
         # Medicine categories aren't inferred from the name like grocery
-        # aisles are — an unrecognized category is just "Other", not
-        # reclassified via keyword matching.
+        # aisles are — a new name is kept as-is so the client can add
+        # groups (e.g. "Heart") rather than having them slammed to Other.
         from app.store import _normalize_medicine_item
 
         item = _normalize_medicine_item({"name": "Cough syrup", "category": "Respiratory"})
-        self.assertEqual(item["category"], "Other")
+        self.assertEqual(item["category"], "Respiratory")
+
+    def test_merge_appends_custom_categories_before_other(self):
+        from app.store import MEDICINE_CATEGORIES, merge_medicine_categories
+
+        names = merge_medicine_categories(list(MEDICINE_CATEGORIES), ["Heart"])
+        self.assertIn("Heart", names)
+        self.assertEqual(names[-1], "Other")
+        self.assertEqual(names.count("Heart"), 1)
 
     def test_keeps_purpose_and_status(self):
         from app.store import _normalize_medicine_item
