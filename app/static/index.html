@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Anything I want</title>
+  <title>Sign in</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png">
   <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
@@ -16,15 +16,12 @@
 <body>
   <div id="lock-screen" class="lock-screen" hidden>
     <form id="lock-form" class="lock-card">
-      <p class="eyebrow" data-i18n="personalCollection">Personal collection</p>
-      <h1 data-i18n="recipeBox">Cookbook</h1>
-      <p class="lock-copy" data-i18n="lockPrompt">This box is private. Enter the edit key to open it.</p>
       <label class="field">
-        <span data-i18n="editKey">Edit key</span>
-        <input id="lock-key" type="password" autocomplete="current-password" data-i18n-placeholder="editKey" placeholder="Edit key">
+        <span class="visually-hidden">Password</span>
+        <input id="lock-key" type="password" autocomplete="current-password" placeholder="Password">
       </label>
       <p id="lock-error" class="edit-error" hidden></p>
-      <button class="pill-btn primary" type="submit" data-i18n="unlock">Open</button>
+      <button class="pill-btn primary" type="submit">Continue</button>
     </form>
   </div>
   <header class="topbar">

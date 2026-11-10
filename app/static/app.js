@@ -115,6 +115,7 @@ window.fetch = function (input, init) {
 };
 
 function showLock(message) {
+  document.title = "Sign in";
   document.body.classList.add("locked");
   const screen = document.getElementById("lock-screen");
   if (screen) screen.hidden = false;
@@ -126,6 +127,7 @@ function showLock(message) {
 }
 
 function hideLock() {
+  document.title = "Anything I want";
   document.body.classList.remove("locked");
   const screen = document.getElementById("lock-screen");
   if (screen) screen.hidden = true;
@@ -1253,7 +1255,7 @@ function cardHtml({ recipe, match }) {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="${recipe.favorite ? "currentColor" : "none"}" stroke="currentColor" stroke-width="1.8"><path d="M12 3.6c-2-2.3-5.4-2.6-7.5-.4-2.2 2.2-2.1 5.8.3 8.1L12 18.6l7.2-7.3c2.4-2.3 2.5-5.9.3-8.1-2.1-2.2-5.5-1.9-7.5.4z"/></svg>
         </button>
       </div>
-      <button class="card-body" type="button" data-action="open-recipe" data-id="${recipe.id}" style="text-align:left; background:none; border:none; cursor:pointer; padding:1.1rem; font:inherit; color:inherit;">
+      <button class="card-body" type="button" data-action="open-recipe" data-id="${recipe.id}">
         ${source}
         <h2>${escapeHtml(recipe.title)}</h2>
         ${tags.length ? `<div class="meta">${tags.join("")}</div>` : ""}

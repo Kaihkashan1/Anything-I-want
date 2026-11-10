@@ -140,13 +140,16 @@ final class RecipeStore {
         let resolved = Self.resolvedURL(from: stored)
         serverURL = resolved
         UserDefaults.standard.set(resolved, forKey: Self.urlKey)
-        serverSecret = UserDefaults.standard.string(forKey: Self.secretKey) ?? ""
-        APIClient(baseURLString: resolved).installAccessCookie(secret: serverSecret)
+        // A local, not `serverSecret`: reading that property is a use of
+        // self, and viewMode/have are not initialized yet.
+        let secret = UserDefaults.standard.string(forKey: Self.secretKey) ?? ""
+        serverSecret = secret
         // Ahead of `have`, whose didSet reaches back into the rest of the
         // store: the properties without a default value all have to be
         // initialized before anything here can touch self.
         viewMode = UserDefaults.standard.string(forKey: Self.viewModeKey).flatMap(ViewMode.init(rawValue:)) ?? .list
         have = UserDefaults.standard.array(forKey: Self.haveKey) as? [String] ?? []
+        APIClient(baseURLString: resolved).installAccessCookie(secret: secret)
         loadCache()
     }
 
