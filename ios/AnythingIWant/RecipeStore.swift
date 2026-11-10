@@ -95,8 +95,8 @@ final class RecipeStore {
         didSet { UserDefaults.standard.set(serverURL, forKey: Self.urlKey) }
     }
 
-    /// Only needed to favorite/edit from the phone — sent as X-Recipe-Box-Key.
-    /// Blank is fine against a dev server with no RECIPE_BOX_SECRET set.
+    /// Sent as X-Anything-I-Want-Key.
+    /// Blank is fine against a dev server with no ANYTHING_I_WANT_SECRET set.
     var serverSecret: String {
         didSet {
             UserDefaults.standard.set(serverSecret, forKey: Self.secretKey)
@@ -105,16 +105,11 @@ final class RecipeStore {
     }
 
     static let hostedURL = "https://anything-i-want.vercel.app"
-    /// Previous production host. Phones that already saved it should follow
-    /// the renamed deployment instead of staying on the old URL.
-    private static let legacyHostedHosts: Set<String> = [
-        "stocked-cookbook-cupboard.vercel.app",
-    ]
 
-    private static let urlKey = "recipeBox.serverURL"
-    private static let secretKey = "recipeBox.serverSecret"
-    private static let haveKey = "recipeBox.have"
-    private static let viewModeKey = "recipeBox.viewMode"
+    private static let urlKey = "anythingIWant.serverURL"
+    private static let secretKey = "anythingIWant.serverSecret"
+    private static let haveKey = "anythingIWant.have"
+    private static let viewModeKey = "anythingIWant.viewMode"
     private static let legacyLANDefault = "http://192.168.0.54:8000"
     // nonisolated: encode/decode need to run from persistCache()'s background
     // task (see below), not hop back to the main actor just to reach these.
@@ -159,7 +154,6 @@ final class RecipeStore {
         let value = stored.trimmingCharacters(in: .whitespacesAndNewlines)
         if value.isEmpty || value == legacyLANDefault { return hostedURL }
         guard let host = URL(string: value)?.host?.lowercased() else { return hostedURL }
-        if legacyHostedHosts.contains(host) { return hostedURL }
         if host == "localhost" || host == "127.0.0.1" { return hostedURL }
         if host.hasPrefix("192.168.") || host.hasPrefix("10.") { return hostedURL }
         if host.hasPrefix("172.") {
@@ -262,7 +256,7 @@ final class RecipeStore {
         }
     }
 
-    /// Bulk replace, for the recipebox://have deep link (e.g. a Shortcuts
+    /// Bulk replace, for the anything-i-want://have deep link (e.g. a Shortcuts
     /// pantry scan) — one request for the whole set rather than N toggles.
     func setHave(_ items: [String]) {
         let previous = have
@@ -655,13 +649,13 @@ final class RecipeStore {
     }
 
     private func cacheURL() -> URL? {
-        let folder = try? FileManager.default.url(
+        guard let folder = try? FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
             appropriateFor: nil,
             create: true
-        )
-        return folder?.appendingPathComponent("recipe-box-cache.json")
+        ) else { return nil }
+        return folder.appendingPathComponent("anything-i-want-cache.json")
     }
 
     private func loadCache() {

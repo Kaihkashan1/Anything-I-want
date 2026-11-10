@@ -104,12 +104,16 @@ async def health():
 
 
 @app.post("/api/session", dependencies=[Depends(require_secret)])
-async def api_session(request: Request, response: Response, x_recipe_box_key: str | None = Header(default=None)):
+async def api_session(
+    request: Request,
+    response: Response,
+    x_anything_i_want_key: str | None = Header(default=None),
+):
     """Trade a valid edit key for a cookie the browser sends on photo requests."""
     if secret_is_enforced():
-        token = (x_recipe_box_key or "").strip() or request.cookies.get("recipe_box_key", "")
+        token = (x_anything_i_want_key or "").strip() or request.cookies.get("anything_i_want_key", "")
         response.set_cookie(
-            key="recipe_box_key",
+            key="anything_i_want_key",
             value=token,
             httponly=True,
             secure=request.url.scheme == "https",

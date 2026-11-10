@@ -31,11 +31,11 @@ struct AnythingIWantApp: App {
         }
     }
 
-    /// Parses a recipebox:// deep link, e.g. from a Shortcuts action:
-    /// recipebox://cupboard (Cupboard tab; recipebox://pantry still works),
-    /// recipebox://surprise, recipebox://have?items=chicken,rice
+    /// Parses an anything-i-want:// deep link, e.g. from a Shortcuts action:
+    /// anything-i-want://cupboard, anything-i-want://surprise,
+    /// anything-i-want://have?items=chicken,rice
     static func route(for url: URL) -> DeepLinkRoute? {
-        guard url.scheme?.lowercased() == "recipebox" else { return nil }
+        guard url.scheme?.lowercased() == "anything-i-want" else { return nil }
         switch url.host?.lowercased() {
         case "cupboard", "pantry", "plan":
             return .pantry

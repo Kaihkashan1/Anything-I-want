@@ -47,7 +47,7 @@ The Home Screen icon is the open box with a question mark in `Assets.xcassets`. 
 
 ## Settings
 
-Favoriting, editing, and Cupboard writes need the server secret when `RECIPE_BOX_SECRET` is set: open **Settings** and paste it into **Edit key**. Leave blank against a dev server with no secret.
+Favoriting, editing, and Cupboard writes need the server secret when `ANYTHING_I_WANT_SECRET` is set: open **Settings** and paste it into **Edit key**. Leave blank against a dev server with no secret.
 
 Settings also shows **API usage** — today's Gemini reads vs the free daily cap, and this month's Apify spend vs credit (Apify half only when `APIFY_API_TOKEN` is set on the server).
 
@@ -57,23 +57,19 @@ Default server URL is `https://anything-i-want.vercel.app`.
 
 **Saving a recipe** — the existing "Save Recipe" Shortcut from the main README. It accepts any link `yt-dlp` recognizes (Instagram, YouTube, TikTok, …) or a plain blog/recipe URL.
 
-**Jumping into the app** — `recipebox://` URL scheme (needs a current Xcode build on the phone):
+**Jumping into the app** — `anything-i-want://` URL scheme (needs a current Xcode build on the phone).
 
 | Link | What it does |
 | --- | --- |
-| `recipebox://surprise` | Opens a random saved recipe |
-| `recipebox://cupboard` | Opens the **Cupboard** tab |
-| `recipebox://pantry` | Same as cupboard (older shortcuts) |
-| `recipebox://have?items=chicken,rice` | Replaces the Cookbook ingredient filter with that list |
+| `anything-i-want://surprise` | Opens a random saved recipe |
+| `anything-i-want://cupboard` | Opens the **Cupboard** tab |
+| `anything-i-want://pantry` | Same as cupboard (older shortcuts) |
+| `anything-i-want://have?items=chicken,rice` | Replaces the Cookbook ingredient filter with that list |
 
 For "what can I make with ___":
 
 1. Shortcuts → **+** → name it "What can I make".
 2. Add **Ask for Input** → Text → prompt "Ingredients? (comma separated)".
-3. Add **Text**: `recipebox://have?items=` + the *Provided Input* variable.
+3. Add **Text**: `anything-i-want://have?items=` + the *Provided Input* variable.
 4. Add **Open URLs** pointed at that Text.
 5. Optional: **Show in Share Sheet** / **Add to Siri**.
-
-## Design reference
-
-Interactive prototype and tokens live in [`design_handoff_recipe_box/`](../design_handoff_recipe_box/) (`Recipe Box.dc.html`, `AppIcon.dc.html`, README). The SwiftUI app under `ios/AnythingIWant/` is the implementation.

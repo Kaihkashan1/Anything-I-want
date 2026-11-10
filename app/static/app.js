@@ -88,10 +88,42 @@ const DEFAULT_MEDICINE_CATEGORIES = [
 ];
 
 const LOG_PAGE_SIZE = 5;
-const SECRET_KEY = "recipeBox.secret";
-const HAVE_KEY = "recipeBox.have";
-const RECIPES_CACHE_KEY = "recipeBox.recipesCache";
-const VIEW_MODE_KEY = "recipeBox.viewMode";
+const SECRET_KEY = "anythingIWant.secret";
+const HAVE_KEY = "anythingIWant.have";
+const RECIPES_CACHE_KEY = "anythingIWant.recipesCache";
+const VIEW_MODE_KEY = "anythingIWant.viewMode";
+
+const LOCK_NOTES = [
+  "You again.",
+  "Password, then.",
+  "No peeking.",
+  "Take your time.",
+  "Still here.",
+  "Whenever.",
+  "No rush.",
+  "This can wait.",
+];
+let lockNotesReady = false;
+
+function arrangeLockNotes(wrong) {
+  const notes = [...document.querySelectorAll(".lock-note")];
+  if (!lockNotesReady) {
+    const pool = LOCK_NOTES.slice();
+    for (let i = pool.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    notes.forEach((el, index) => {
+      el.textContent = pool[index % pool.length];
+      el.classList.remove("is-wrong");
+    });
+    lockNotesReady = true;
+  }
+  if (!wrong || !notes.length) return;
+  const el = notes[Math.floor(Math.random() * notes.length)];
+  el.textContent = "That wasn't it.";
+  el.classList.add("is-wrong");
+}
 
 // Recipe photos load through <img>, which cannot set a header. Every API
 // call sends the edit key, and /api/session turns a valid key into a cookie
@@ -108,7 +140,7 @@ window.fetch = function (input, init) {
   if (path.startsWith("/api") || path === "/ingest" || path === "/jobs") {
     const headers = new Headers((init && init.headers) || undefined);
     const secret = (localStorage.getItem(SECRET_KEY) || "").trim();
-    if (secret && !headers.has("X-Recipe-Box-Key")) headers.set("X-Recipe-Box-Key", secret);
+    if (secret && !headers.has("X-Anything-I-Want-Key")) headers.set("X-Anything-I-Want-Key", secret);
     init = Object.assign({}, init, { headers, credentials: "same-origin" });
   }
   return nativeFetch(input, init);
@@ -119,11 +151,13 @@ function showLock(message) {
   document.body.classList.add("locked");
   const screen = document.getElementById("lock-screen");
   if (screen) screen.hidden = false;
+  const wrong = message === t("wrongKey");
   const error = document.getElementById("lock-error");
   if (error) {
-    error.hidden = !message;
-    error.textContent = message || "";
+    error.hidden = !message || wrong;
+    error.textContent = wrong ? "" : (message || "");
   }
+  arrangeLockNotes(wrong);
 }
 
 function hideLock() {
@@ -349,7 +383,7 @@ async function load({ silent = false } = {}) {
 
 function authHeaders() {
   const secret = (localStorage.getItem(SECRET_KEY) || "").trim();
-  return secret ? { "X-Recipe-Box-Key": secret } : {};
+  return secret ? { "X-Anything-I-Want-Key": secret } : {};
 }
 
 // A FastAPI HTTPException's {"detail": "..."} body is usually a real,

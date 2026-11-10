@@ -2,7 +2,7 @@ const I18N = {
   en: {
     personalCollection: "Personal collection",
     appName: "Anything I want",
-    recipeBox: "Cookbook",
+    cookbook: "Cookbook",
     addRecipe: "Add recipe",
     typeItIn: "Type it in",
     fromAPhoto: "From a photo",
@@ -73,7 +73,7 @@ const I18N = {
     loadingRecipes: "Loading recipes…",
     couldNotLoad: "Could not load recipes.",
     editKeyPrompt:
-      "Edit key — same value as RECIPE_BOX_SECRET on the server. Needed to favorite, edit, or delete from here. Leave blank against a dev server with no secret set.",
+      "Edit key — same value as ANYTHING_I_WANT_SECRET on the server. Needed to favorite, edit, or delete from here. Leave blank against a dev server with no secret set.",
     couldntSaveHave: "Couldn't save what you have: {error}",
     markAsHave: "Mark as something you have:",
     addQuoted: '+ Add "{item}"',

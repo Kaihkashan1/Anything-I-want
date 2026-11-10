@@ -5,7 +5,7 @@ import UserNotifications
 /// Fires at 9:00 on the morning 7 days before, 3 days before, and on the
 /// expiry date — matching the badges already shown on those rows.
 enum ExpiryNotifications {
-    static let enabledKey = "recipeBox.expiryNotificationsEnabled"
+    static let enabledKey = "anythingIWant.expiryNotificationsEnabled"
     private static let idPrefix = "expiry."
     private static let leadDays = [7, 3, 0]
     private static let hour = 9

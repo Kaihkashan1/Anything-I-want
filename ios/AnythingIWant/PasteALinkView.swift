@@ -4,7 +4,7 @@ import UIKit
 /// Screen 4 from the handoff — paste a link (an Instagram reel or any
 /// recipe page) instead of going through the
 /// Shortcut's share sheet. POSTs to the same /ingest endpoint the Shortcut
-/// uses, with the same X-Recipe-Box-Key header.
+/// uses, with the same X-Anything-I-Want-Key header.
 struct PasteALinkView: View {
     @Environment(RecipeStore.self) private var store
     @Environment(\.dismiss) private var dismiss

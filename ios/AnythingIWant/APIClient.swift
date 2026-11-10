@@ -90,7 +90,7 @@ struct APIClient {
         request.timeoutInterval = Self.longRequestTimeout
         let trimmedSecret = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedSecret.isEmpty {
-            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Recipe-Box-Key")
+            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Anything-I-Want-Key")
         }
 
         let boundary = "Boundary-\(UUID().uuidString)"
@@ -131,7 +131,7 @@ struct APIClient {
         request.httpMethod = "POST"
         let trimmedSecret = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedSecret.isEmpty {
-            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Recipe-Box-Key")
+            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Anything-I-Want-Key")
         }
 
         let session: URLSession
@@ -183,7 +183,7 @@ struct APIClient {
         request.httpMethod = "PATCH"
         let trimmedSecret = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedSecret.isEmpty {
-            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Recipe-Box-Key")
+            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Anything-I-Want-Key")
         }
 
         let session: URLSession
@@ -243,7 +243,7 @@ struct APIClient {
         request.timeoutInterval = 15
         let trimmedSecret = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedSecret.isEmpty {
-            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Recipe-Box-Key")
+            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Anything-I-Want-Key")
         }
 
         let data: Data
@@ -276,7 +276,7 @@ struct APIClient {
         request.setValue("text/plain; charset=utf-8", forHTTPHeaderField: "Content-Type")
         let trimmedSecret = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedSecret.isEmpty {
-            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Recipe-Box-Key")
+            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Anything-I-Want-Key")
         }
         request.httpBody = Data(url.utf8)
 
@@ -310,7 +310,7 @@ struct APIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let trimmedSecret = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedSecret.isEmpty {
-            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Recipe-Box-Key")
+            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Anything-I-Want-Key")
         }
         request.httpBody = try JSONEncoder().encode(PantryResponse(items: items))
 
@@ -344,7 +344,7 @@ struct APIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let trimmedSecret = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedSecret.isEmpty {
-            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Recipe-Box-Key")
+            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Anything-I-Want-Key")
         }
         request.httpBody = try JSONEncoder().encode(PantryInventoryResponse(items: items, categories: categories))
 
@@ -378,7 +378,7 @@ struct APIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let trimmedSecret = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedSecret.isEmpty {
-            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Recipe-Box-Key")
+            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Anything-I-Want-Key")
         }
         request.httpBody = try JSONEncoder().encode(MedicinesResponse(items: items, categories: categories))
 
@@ -413,7 +413,7 @@ struct APIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let trimmedSecret = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedSecret.isEmpty {
-            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Recipe-Box-Key")
+            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Anything-I-Want-Key")
         }
         request.httpBody = try JSONEncoder().encode(ToBuyResponse(items: items))
 
@@ -460,7 +460,7 @@ struct APIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let trimmedSecret = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedSecret.isEmpty {
-            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Recipe-Box-Key")
+            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Anything-I-Want-Key")
         }
         request.httpBody = try JSONEncoder().encode(ToBuySourceChange(text: text, qty: qty, recipeID: recipeID, category: category, notes: notes))
 
@@ -490,7 +490,7 @@ struct APIClient {
         request.cachePolicy = .reloadIgnoringLocalCacheData
         let trimmedSecret = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedSecret.isEmpty {
-            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Recipe-Box-Key")
+            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Anything-I-Want-Key")
         }
 
         let data: Data
@@ -519,7 +519,7 @@ struct APIClient {
         request.cachePolicy = .reloadIgnoringLocalCacheData
         let trimmedSecret = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedSecret.isEmpty {
-            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Recipe-Box-Key")
+            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Anything-I-Want-Key")
         }
 
         let data: Data
@@ -569,14 +569,14 @@ struct APIClient {
         let trimmed = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let base = URL(string: trimmedBase), let host = base.host else { return }
         let storage = HTTPCookieStorage.shared
-        for cookie in storage.cookies(for: base) ?? [] where cookie.name == "recipe_box_key" {
+        for cookie in storage.cookies(for: base) ?? [] where cookie.name == "anything_i_want_key" {
             storage.deleteCookie(cookie)
         }
         guard !trimmed.isEmpty else { return }
         var props: [HTTPCookiePropertyKey: Any] = [
             .domain: host,
             .path: "/",
-            .name: "recipe_box_key",
+            .name: "anything_i_want_key",
             .value: trimmed,
         ]
         if base.scheme == "https" {
@@ -590,7 +590,7 @@ struct APIClient {
     private func authorize(_ request: inout URLRequest, secret: String) {
         let trimmed = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        request.setValue(trimmed, forHTTPHeaderField: "X-Recipe-Box-Key")
+        request.setValue(trimmed, forHTTPHeaderField: "X-Anything-I-Want-Key")
         installAccessCookie(secret: trimmed)
     }
 

@@ -22,7 +22,7 @@ enum BundledFonts {
     }
 }
 
-/// Design tokens for the "Organic" redesign (see design_handoff_recipe_box/).
+/// Design tokens for the "Organic" redesign.
 /// Replaces the old sage/grey palette and system-font stand-ins wholesale.
 enum Theme {
 

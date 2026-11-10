@@ -16,7 +16,7 @@ final class Connectivity {
     var isOffline: Bool { hasPath && !isOnline }
 
     @ObservationIgnored private let monitor = NWPathMonitor()
-    @ObservationIgnored private let queue = DispatchQueue(label: "recipebox.connectivity")
+    @ObservationIgnored private let queue = DispatchQueue(label: "anything-i-want.connectivity")
 
     init() {
         monitor.pathUpdateHandler = { [weak self] path in

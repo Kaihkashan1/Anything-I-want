@@ -1410,12 +1410,30 @@ body.locked .drawer,
 body.locked .photo-lightbox { display: none !important; }
 
 .lock-screen {
+  position: relative;
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 2rem 1.25rem;
 }
+
+.lock-note {
+  position: absolute;
+  margin: 0;
+  max-width: 9rem;
+  font-family: "Figtree", sans-serif;
+  font-size: 0.82rem;
+  line-height: 1.3;
+  color: var(--ink-soft);
+}
+
+.lock-note.is-wrong { color: var(--ink); }
+
+.lock-note-tl { top: 1.5rem; left: 1.25rem; transform: rotate(-2.5deg); }
+.lock-note-tr { top: 1.7rem; right: 1.25rem; transform: rotate(2deg); text-align: right; }
+.lock-note-bl { bottom: 1.6rem; left: 1.35rem; transform: rotate(1.5deg); }
+.lock-note-br { bottom: 1.45rem; right: 1.2rem; transform: rotate(-1.5deg); text-align: right; }
 
 .lock-screen[hidden] { display: none; }
 

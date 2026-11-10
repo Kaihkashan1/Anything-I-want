@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     google_photos_folder_id: str = ""
     google_service_account_file: Path = ROOT / "service_account.json"
     google_service_account_json: str = ""
-    recipe_box_secret: str = ""
+    anything_i_want_secret: str = ""
     ntfy_topic: str = ""
     # Instagram fetches go through this actor — no login, no personal
     # cookies, no risk to any Instagram account. Required for Instagram

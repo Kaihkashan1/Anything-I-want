@@ -57,14 +57,14 @@ The first save creates the header row: Title, Ingredients, Steps, Source, Confid
 ### Create a service account
 
 1. Open [Google Cloud Console](https://console.cloud.google.com/). Sign in with the same Google account.
-2. Create a project (e.g. `recipe-box`). Billing is not required for the Sheets API at this volume; skip any billing prompts if you can.
+2. Create a project (e.g. `anything-i-want`). Billing is not required for the Sheets API at this volume; skip any billing prompts if you can.
 3. Enable **Google Sheets API** and **Google Drive API**:
    - [Sheets API](https://console.cloud.google.com/apis/library/sheets.googleapis.com)
    - [Drive API](https://console.cloud.google.com/apis/library/drive.googleapis.com)
 4. Go to **APIs & Services → Credentials → Create credentials → Service account**.
-5. Name it `recipe-box`, skip optional steps, click **Done**.
+5. Name it `anything-i-want`, skip optional steps, click **Done**.
 6. Open the service account → **Keys → Add key → Create new key → JSON**. Save the downloaded file in this project as `service_account.json` (same folder as `README.md`).
-7. Open that JSON file and copy `client_email` (looks like `recipe-box@….iam.gserviceaccount.com`). For this project it is `recipe-box@recipe-box-506315.iam.gserviceaccount.com`.
+7. Open that JSON file and copy `client_email` (looks like `anything-i-want@….iam.gserviceaccount.com`). This project's account is still `recipe-box@recipe-box-506315.iam.gserviceaccount.com` until you create a new service account.
 8. Back in the Sheet: **Share →** paste that email → **Editor** → uncheck “Notify people” → **Share**.
 
 If you skip that last share step, every save will fail with “Spreadsheet not found.”
@@ -73,7 +73,7 @@ If you skip that last share step, every save will fail with “Spreadsheet not f
 
 In `.env`:
 
-- Set `RECIPE_BOX_SECRET` to any random string. The iPhone Shortcut will send it as a header so random LAN traffic can’t ingest into your sheet. Leave `change-me` only while you are testing with curl.
+- Set `ANYTHING_I_WANT_SECRET` to any random string. The iPhone Shortcut sends it as header `X-Anything-I-Want-Key`. Leave `change-me` only while you are testing with curl.
 - Set up Apify for Instagram links (below). There is no other way to fetch Instagram content in this app — no personal login, no cookies. Without a token, Instagram links will fail with a clear error; every other source (YouTube, TikTok, blog links) works without Apify.
 
 ### Apify (required for Instagram — no login involved)
@@ -125,7 +125,7 @@ On the iPhone:
    - Method: `POST`
    - Headers:
      - `Content-Type` = `application/json`
-     - `X-Recipe-Box-Key` = the same value as `RECIPE_BOX_SECRET`
+     - `X-Anything-I-Want-Key` = the same value as `ANYTHING_I_WANT_SECRET`
    - Request Body: JSON
    - Add a field `content` whose value is **Shortcut Input**
    - Tap **Show More** and set **Request Timeout** to `280` — just under Vercel's Hobby function ceiling (300s), so this action isn't the thing that cuts the request short.
@@ -152,11 +152,11 @@ Test without the phone, from the Mac:
 ```bash
 curl -X POST http://127.0.0.1:8000/ingest \
   -H "Content-Type: application/json" \
-  -H "X-Recipe-Box-Key: change-me" \
+  -H "X-Anything-I-Want-Key: change-me" \
   -d '{"content":"https://www.instagram.com/reel/PASTE_A_REEL_ID/"}'
 ```
 
-Then `curl http://127.0.0.1:8000/jobs -H "X-Recipe-Box-Key: change-me"` and refresh the Sheet.
+Then `curl http://127.0.0.1:8000/jobs -H "X-Anything-I-Want-Key: change-me"` and refresh the Sheet.
 
 ### Where errors actually show up
 
@@ -198,7 +198,7 @@ The web app and recipe API run on Vercel as a FastAPI function. Secrets stay in 
    | `GEMINI_FALLBACK_MODEL` | optional — defaults to `gemini-3.5-flash-lite` |
    | `GOOGLE_SHEET_ID` | same as `.env` |
    | `GOOGLE_SERVICE_ACCOUNT_JSON` | full contents of `service_account.json` |
-   | `RECIPE_BOX_SECRET` | same as `.env` |
+   | `ANYTHING_I_WANT_SECRET` | same as `.env` |
    | `APIFY_API_TOKEN` | same as `.env` — required for Instagram links |
    | `NTFY_TOPIC` | optional |
 
@@ -219,7 +219,6 @@ Browsing the box works well on Vercel. Ingest may run up to **300 seconds** on H
 - **Tags.** A small fixed set (mom's recipes, veg, non-veg, dessert, high protein, airfryer) shown as quick-pick chips when adding/editing a recipe — enforced at the model layer. Multi-select filtering on Cookbook.
 - **Course.** Every recipe is Main course, Appetizers, Desserts, or Dips — Sheet column, Cookbook filter row, detail pill. `/ingest` derives it from Gemini's meal classification; add/edit flows (including Edit recipe) set it directly.
 - **API usage.** Settings shows today's Gemini read count (self-tracked, combined across primary and fallback) against 520, and this month's Apify spend against live credit (when `APIFY_API_TOKEN` is set), each with when it resets. Logs lists the last 50 import attempts (including photos).
-- **Design handoff.** Visual/interaction reference for the iOS redesign: [`design_handoff_recipe_box/`](design_handoff_recipe_box/).
 
 ## Layout
 
@@ -234,6 +233,5 @@ app/
   store.py      Google Sheets + App State (inventory, to-buy, flat pantry filter)
   models.py     Recipe, PantryItem, ToBuyItem, …
 ios/            Anything I want (SwiftUI) — Cookbook + Cupboard
-design_handoff_recipe_box/   Interactive prototype + app icon
 vercel.json     Vercel function timeout
 ```

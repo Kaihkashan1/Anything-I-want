@@ -22,8 +22,8 @@ final class MedicineStore {
 
     private nonisolated static let encoder = JSONEncoder()
     private nonisolated static let decoder = JSONDecoder()
-    private static let urlKey = "recipeBox.serverURL"
-    private static let secretKey = "recipeBox.serverSecret"
+    private static let urlKey = "anythingIWant.serverURL"
+    private static let secretKey = "anythingIWant.serverSecret"
     private static let cacheName = "medicinesCache.json"
     @ObservationIgnored private var refreshTask: Task<Bool, Never>?
     @ObservationIgnored private var lastSuccessfulRefresh: Date?

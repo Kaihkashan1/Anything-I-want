@@ -25,7 +25,7 @@ DRIVE_SCOPES = (
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
 )
-PHOTOS_FOLDER_NAME = "Recipe Box photos"
+PHOTOS_FOLDER_NAME = "Anything I want photos"
 UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true"
 FILES_URL = "https://www.googleapis.com/drive/v3/files"
 FOLDER_FIELDS = "id,name,parents,driveId,owners(me,emailAddress),capabilities(canAddChildren)"
@@ -52,7 +52,7 @@ def _service_account_email() -> str:
 
 
 def _share_folder_message() -> str:
-    email = _service_account_email() or "the recipe-box service account"
+    email = _service_account_email() or "the anything-i-want service account"
     return (
         f'Share a Google Drive folder named “{PHOTOS_FOLDER_NAME}” with {email} '
         "as Editor (same email as the spreadsheet), then save again."
@@ -294,17 +294,17 @@ def _upload_drive(data: bytes, filename: str | None) -> str:
     }
     metadata_part = json.dumps(metadata).encode("utf-8")
     body = (
-        b"--recipebox\r\n"
+        b"--anythingiwant\r\n"
         b"Content-Type: application/json; charset=UTF-8\r\n\r\n"
         + metadata_part
-        + b"\r\n--recipebox\r\n"
+        + b"\r\n--anythingiwant\r\n"
         b"Content-Type: image/jpeg\r\n\r\n"
         + data
-        + b"\r\n--recipebox--"
+        + b"\r\n--anythingiwant--"
     )
     response = _session().post(
         UPLOAD_URL,
-        headers={"Content-Type": "multipart/related; boundary=recipebox"},
+        headers={"Content-Type": "multipart/related; boundary=anythingiwant"},
         data=body,
         timeout=60,
     )

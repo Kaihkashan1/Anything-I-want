@@ -27,8 +27,8 @@ final class PantryStore {
 
     private nonisolated static let encoder = JSONEncoder()
     private nonisolated static let decoder = JSONDecoder()
-    private static let urlKey = "recipeBox.serverURL"
-    private static let secretKey = "recipeBox.serverSecret"
+    private static let urlKey = "anythingIWant.serverURL"
+    private static let secretKey = "anythingIWant.serverSecret"
     private static let cacheName = "pantryInventoryCache.json"
     @ObservationIgnored private var toBuySyncTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Bool, Never>?

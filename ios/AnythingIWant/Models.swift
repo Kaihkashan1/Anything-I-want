@@ -969,7 +969,7 @@ struct RecipeCreate: Encodable {
     var source: String = ""
 }
 
-/// A recipebox:// deep link, e.g. from a Shortcuts action.
+/// An anything-i-want:// deep link, e.g. from a Shortcuts action.
 enum DeepLinkRoute: Equatable {
     case pantry
     case surprise
