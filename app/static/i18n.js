@@ -171,7 +171,7 @@ const I18N = {
     whichMedicine: "Which medicine?",
     searchShopGroceries: "Search items to buy",
     searchShopMedicines: "Search medicines to buy",
-    shopMedicinesEmpty: "Nothing to buy for medicines yet.",
+    shopMedicinesEmpty: "No medicines to be bought.",
     shopGroceriesCountOne: "{n} item",
     shopGroceriesCountOther: "{n} items",
     shopToBuy: "To buy",

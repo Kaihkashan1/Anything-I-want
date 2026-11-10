@@ -233,7 +233,7 @@ struct ShopView: View {
     private var emptyCopy: String {
         switch segment {
         case .groceries: L("Your shop list is empty.")
-        case .medicines: L("Nothing to buy for medicines yet.")
+        case .medicines: L("No medicines to be bought.")
         case .takeToIndia: L("Nothing to take to India yet.")
         case .bringToGermany: L("Nothing to bring to Germany yet.")
         }
