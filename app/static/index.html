@@ -14,6 +14,19 @@
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
+  <div id="lock-screen" class="lock-screen" hidden>
+    <form id="lock-form" class="lock-card">
+      <p class="eyebrow" data-i18n="personalCollection">Personal collection</p>
+      <h1 data-i18n="recipeBox">Cookbook</h1>
+      <p class="lock-copy" data-i18n="lockPrompt">This box is private. Enter the edit key to open it.</p>
+      <label class="field">
+        <span data-i18n="editKey">Edit key</span>
+        <input id="lock-key" type="password" autocomplete="current-password" data-i18n-placeholder="editKey" placeholder="Edit key">
+      </label>
+      <p id="lock-error" class="edit-error" hidden></p>
+      <button class="pill-btn primary" type="submit" data-i18n="unlock">Open</button>
+    </form>
+  </div>
   <header class="topbar">
     <div class="topbar-row">
       <div class="brand">

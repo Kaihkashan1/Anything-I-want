@@ -2,7 +2,7 @@
 
 Share a recipe reel, video, or blog link from your iPhone. The hosted backend fetches it, asks Gemini to extract the recipe, and appends a row to a Google Sheet. Browse and cook in the personal iPhone app (**Anything I want** — Cookbook + Cupboard tabs), at the Vercel URL, or in the Sheets app.
 
-This is the free-tier MVP: Google Sheets storage, Vercel in production (optional local Mac for development). Production: `https://stocked-cookbook-cupboard.vercel.app/`. Local: `http://127.0.0.1:8000/`. iPhone app: [`ios/`](ios/).
+This is the free-tier MVP: Google Sheets storage, Vercel in production (optional local Mac for development). Production: `https://anything-i-want.vercel.app/`. Local: `http://127.0.0.1:8000/`. iPhone app: [`ios/`](ios/).
 
 ```
 iPhone Share → POST /ingest → Apify (Instagram) / yt-dlp (YouTube, TikTok, ...) / plain page fetch (everything else) → Gemini → Google Sheets
@@ -103,7 +103,7 @@ On this Mac, open [http://127.0.0.1:8000/](http://127.0.0.1:8000/) for the web U
 For day-to-day use, point the iPhone Shortcut and Anything I want app at the hosted URL instead of this Mac:
 
 ```
-https://stocked-cookbook-cupboard.vercel.app
+https://anything-i-want.vercel.app
 ```
 
 A local server is only needed when you are developing the backend. If you do use LAN ingest, find this Mac’s Wi-Fi address (iPhone and Mac on the same network):
@@ -121,7 +121,7 @@ On the iPhone:
 1. Open **Shortcuts → All Shortcuts → +**. Name it **Save Recipe**.
 2. Tap the **i** (or shortcut settings) and turn on **Show in Share Sheet**. Accept **URLs** and **Text**.
 3. Add action **Get Contents of URL**:
-   - URL: `https://stocked-cookbook-cupboard.vercel.app/ingest`
+   - URL: `https://anything-i-want.vercel.app/ingest`
    - Method: `POST`
    - Headers:
      - `Content-Type` = `application/json`
@@ -181,14 +181,14 @@ Create a unique topic name at [ntfy.sh](https://ntfy.sh), subscribe in the ntfy 
 
 A SwiftUI app lives in `ios/` (Xcode project and scheme are both named **Anything I want**, matching the home-screen name). Two tabs: **Cookbook** (recipes) and **Cupboard** (inventory + to-buy). After a sync, the phone keeps a local copy so you can browse and cook offline; opening the app again refreshes from the server. There are no logins or household invites — sharing means the same Vercel host and Edit key (one kitchen). Full steps: [`ios/README.md`](ios/README.md).
 
-Short version: open `ios/Anything I want.xcodeproj` in **Xcode.app**, sign with your Personal Team, plug in the iPhone, press Run. The app defaults to `https://stocked-cookbook-cupboard.vercel.app` — the Mac does not need to be running.
+Short version: open `ios/Anything I want.xcodeproj` in **Xcode.app**, sign with your Personal Team, plug in the iPhone, press Run. The app defaults to `https://anything-i-want.vercel.app` — the Mac does not need to be running.
 
 ## 9. Deploy to Vercel
 
 The web app and recipe API run on Vercel as a FastAPI function. Secrets stay in Vercel env vars — never commit `.env` or `service_account.json`.
 
 1. Install the [Vercel CLI](https://vercel.com/docs/cli) and log in: `vercel login`
-2. From this folder: `vercel --prod --yes` (this project deploys as **stocked-cookbook-cupboard**)
+2. From this folder: `vercel --prod --yes` (this project deploys as **anything-i-want**)
 3. In the Vercel project → Settings → Environment Variables, add:
 
    | Name | Value |
@@ -202,13 +202,13 @@ The web app and recipe API run on Vercel as a FastAPI function. Secrets stay in 
    | `APIFY_API_TOKEN` | same as `.env` — required for Instagram links |
    | `NTFY_TOPIC` | optional |
 
-4. Redeploy after saving env vars. Production is [https://stocked-cookbook-cupboard.vercel.app/](https://stocked-cookbook-cupboard.vercel.app/).
+4. Redeploy after saving env vars. Production is [https://anything-i-want.vercel.app/](https://anything-i-want.vercel.app/).
 
 Browsing the box works well on Vercel. Ingest may run up to **300 seconds** on Hobby Fluid; a long reel plus Gemini can still time out if the phone hangs up first. If that happens, you can temporarily point the Shortcut at a local Mac ingest URL.
 
 ## Notes
 
-- **The app.** Production is `https://stocked-cookbook-cupboard.vercel.app/`. On this Mac, `http://127.0.0.1:8000/` is for local development. On iPhone, install **Anything I want** — see [`ios/README.md`](ios/README.md). Google Sheets remains the recipe database; Cupboard inventory and to-buy live in App State JSON on the server (not Sheet rows).
+- **The app.** Production is `https://anything-i-want.vercel.app/`. On this Mac, `http://127.0.0.1:8000/` is for local development. On iPhone, install **Anything I want** — see [`ios/README.md`](ios/README.md). Google Sheets remains the recipe database; Cupboard inventory and to-buy live in App State JSON on the server (not Sheet rows).
 - **Offline and refresh.** Anything I want keeps the last successful Cookbook and Cupboard sync on the phone. Browsing, filtering, and cook mode work without a network; adding, favoriting, editing, deleting, and cupboard writes still need the server. The app refreshes when you open it, when you return from the background (so a Shortcut/web save while it was away is picked up), when connectivity comes back, or when you pull to refresh. iOS does not let it poll the server while it is fully suspended.
 - **Duplicates.** The same source URL is not ingested twice. One carousel post can still create several recipe rows on the first save (same URL on each row).
 - **Rate limits and busy responses.** On Vercel Hobby, the function may run up to 300s; Gemini itself is given about 140s for one `generate_content` so a slow save still counts as one request. A daily-quota 429 or a 503/504 capacity blip first retries once on the fallback model (same API key). If that also fails, a quota 429 surfaces the quota message below and a 503/504 surfaces "Gemini is busy right now. Wait a few seconds and try again." If the Shortcut timeout is shorter than the server, the phone can still show a 499.

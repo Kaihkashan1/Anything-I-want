@@ -77,7 +77,7 @@ button { font-family: inherit; }
   margin-bottom: 0.9rem;
 }
 
-.brand h1 { font-size: 1.6rem; font-weight: 700; }
+.brand h1 { font-size: 1.35rem; font-weight: 400; }
 
 .icon-round {
   margin-left: auto;
@@ -417,7 +417,7 @@ button { font-family: inherit; }
 }
 
 .settings-title {
-  font-size: 1.875rem;
+  font-size: 1.5rem;
   line-height: 1.15;
   margin: 0 0 1.2rem;
 }
@@ -556,7 +556,7 @@ a.import-log-url {
 }
 
 .grid.view-list .card-body h2 {
-  font-size: 1.3rem;
+  font-size: 1.05rem;
 }
 
 .grid.view-list .card {
@@ -1123,7 +1123,7 @@ a.import-log-url {
 }
 
 .hero-plain .eyebrow { color: var(--ink-soft); margin-bottom: 0.4rem; }
-.hero-plain h2 { color: var(--ink); font-size: 1.9rem; line-height: 1.15; margin: 0; }
+.hero-plain h2 { color: var(--ink); font-size: 1.5rem; line-height: 1.15; margin: 0; }
 
 .pantry-match {
   padding: 0.8rem 1.4rem;
@@ -1139,7 +1139,7 @@ a.import-log-url {
 .recipe-body .meta { margin-top: 1.8rem; }
 
 .recipe h3 {
-  font-size: 1.25rem;
+  font-size: 1.05rem;
   margin: 1.8rem 0 0.9rem;
 }
 
@@ -1357,4 +1357,39 @@ ol.steps li {
   .shell { padding: 1rem 1rem 3rem; }
   .topbar-row { flex-wrap: wrap; }
   .search input { width: 100%; }
+}
+
+body.locked .topbar,
+body.locked .shell,
+body.locked .drawer,
+body.locked .photo-lightbox { display: none !important; }
+
+.lock-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.25rem;
+}
+
+.lock-screen[hidden] { display: none; }
+
+.lock-card {
+  width: min(24rem, 100%);
+}
+
+.lock-card h1 {
+  font-size: 1.35rem;
+  font-weight: 400;
+  margin-bottom: 0.5rem;
+}
+
+.lock-copy {
+  color: var(--ink-soft);
+  margin: 0 0 1.2rem;
+}
+
+.lock-card .pill-btn {
+  width: 100%;
+  margin-top: 0.4rem;
 }

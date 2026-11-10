@@ -98,10 +98,18 @@ final class RecipeStore {
     /// Only needed to favorite/edit from the phone — sent as X-Recipe-Box-Key.
     /// Blank is fine against a dev server with no RECIPE_BOX_SECRET set.
     var serverSecret: String {
-        didSet { UserDefaults.standard.set(serverSecret, forKey: Self.secretKey) }
+        didSet {
+            UserDefaults.standard.set(serverSecret, forKey: Self.secretKey)
+            APIClient(baseURLString: serverURL).installAccessCookie(secret: serverSecret)
+        }
     }
 
-    static let hostedURL = "https://stocked-cookbook-cupboard.vercel.app"
+    static let hostedURL = "https://anything-i-want.vercel.app"
+    /// Previous production host. Phones that already saved it should follow
+    /// the renamed deployment instead of staying on the old URL.
+    private static let legacyHostedHosts: Set<String> = [
+        "stocked-cookbook-cupboard.vercel.app",
+    ]
 
     private static let urlKey = "recipeBox.serverURL"
     private static let secretKey = "recipeBox.serverSecret"
@@ -133,6 +141,7 @@ final class RecipeStore {
         serverURL = resolved
         UserDefaults.standard.set(resolved, forKey: Self.urlKey)
         serverSecret = UserDefaults.standard.string(forKey: Self.secretKey) ?? ""
+        APIClient(baseURLString: resolved).installAccessCookie(secret: serverSecret)
         // Ahead of `have`, whose didSet reaches back into the rest of the
         // store: the properties without a default value all have to be
         // initialized before anything here can touch self.
@@ -147,6 +156,7 @@ final class RecipeStore {
         let value = stored.trimmingCharacters(in: .whitespacesAndNewlines)
         if value.isEmpty || value == legacyLANDefault { return hostedURL }
         guard let host = URL(string: value)?.host?.lowercased() else { return hostedURL }
+        if legacyHostedHosts.contains(host) { return hostedURL }
         if host == "localhost" || host == "127.0.0.1" { return hostedURL }
         if host.hasPrefix("192.168.") || host.hasPrefix("10.") { return hostedURL }
         if host.hasPrefix("172.") {
@@ -402,7 +412,7 @@ final class RecipeStore {
         let client = APIClient(baseURLString: serverURL)
         for attempt in 0..<attempts {
             let isLastAttempt = attempt == attempts - 1
-            guard let payload = try? await client.fetchRecipes() else {
+            guard let payload = try? await client.fetchRecipes(secret: serverSecret) else {
                 if !isLastAttempt { try? await Task.sleep(for: .seconds(1.5)) }
                 continue
             }
@@ -538,8 +548,8 @@ final class RecipeStore {
     private func fetchOnce(hadRecipes: Bool) async -> Bool {
         do {
             let client = APIClient(baseURLString: serverURL)
-            async let catalog = client.fetchRecipes()
-            async let haveItems = client.fetchPantry()
+            async let catalog = client.fetchRecipes(secret: serverSecret)
+            async let haveItems = client.fetchPantry(secret: serverSecret)
             let payload = try await catalog
             guard !Task.isCancelled else { return false }
             apply(recipes: payload.recipes, pantry: payload.pantry)

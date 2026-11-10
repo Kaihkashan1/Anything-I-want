@@ -93,6 +93,68 @@ const HAVE_KEY = "recipeBox.have";
 const RECIPES_CACHE_KEY = "recipeBox.recipesCache";
 const VIEW_MODE_KEY = "recipeBox.viewMode";
 
+// Recipe photos load through <img>, which cannot set a header. Every API
+// call sends the edit key, and /api/session turns a valid key into a cookie
+// the browser attaches to those image requests.
+const nativeFetch = window.fetch.bind(window);
+window.fetch = function (input, init) {
+  const url = typeof input === "string" ? input : (input && input.url) || "";
+  let path = url;
+  try {
+    path = new URL(url, window.location.origin).pathname;
+  } catch {
+    path = url;
+  }
+  if (path.startsWith("/api") || path === "/ingest" || path === "/jobs") {
+    const headers = new Headers((init && init.headers) || undefined);
+    const secret = (localStorage.getItem(SECRET_KEY) || "").trim();
+    if (secret && !headers.has("X-Recipe-Box-Key")) headers.set("X-Recipe-Box-Key", secret);
+    init = Object.assign({}, init, { headers, credentials: "same-origin" });
+  }
+  return nativeFetch(input, init);
+};
+
+function showLock(message) {
+  document.body.classList.add("locked");
+  const screen = document.getElementById("lock-screen");
+  if (screen) screen.hidden = false;
+  const error = document.getElementById("lock-error");
+  if (error) {
+    error.hidden = !message;
+    error.textContent = message || "";
+  }
+}
+
+function hideLock() {
+  document.body.classList.remove("locked");
+  const screen = document.getElementById("lock-screen");
+  if (screen) screen.hidden = true;
+}
+
+async function openSession() {
+  const secret = (localStorage.getItem(SECRET_KEY) || "").trim();
+  try {
+    const response = await fetch("/api/session", { method: "POST" });
+    if (response.status === 401) {
+      showLock(secret ? t("wrongKey") : "");
+      return false;
+    }
+    if (!response.ok) {
+      showLock(t("couldNotLoad"));
+      return false;
+    }
+  } catch {
+    if (!secret) {
+      showLock("");
+      return false;
+    }
+    hideLock();
+    return true;
+  }
+  hideLock();
+  return true;
+}
+
 function loadViewMode() {
   return localStorage.getItem(VIEW_MODE_KEY) === "grid" ? "grid" : "list";
 }
@@ -242,6 +304,10 @@ async function load({ silent = false } = {}) {
       fetch("/api/to-buy", { cache: "no-store" }).catch(() => null),
     ]);
     if (!response.ok) {
+      if (response.status === 401) {
+        showLock(t("wrongKey"));
+        return;
+      }
       if (!hadCache) els.status.textContent = t("couldNotLoad");
       else setOfflineBanner(true);
       return;
@@ -3169,24 +3235,39 @@ document.addEventListener("keydown", (event) => {
   }
 });
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") {
+  if (document.visibilityState === "visible" && !document.body.classList.contains("locked")) {
     load({ silent: true }).catch(() => {});
   }
 });
 window.addEventListener("pageshow", (event) => {
-  if (event.persisted) load({ silent: true }).catch(() => {});
+  if (event.persisted && !document.body.classList.contains("locked")) load({ silent: true }).catch(() => {});
 });
 window.addEventListener("online", () => {
-  load({ silent: true }).catch(() => {});
+  if (!document.body.classList.contains("locked")) load({ silent: true }).catch(() => {});
+});
+
+document.getElementById("lock-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const input = document.getElementById("lock-key");
+  const value = (input && input.value || "").trim();
+  if (!value) return;
+  localStorage.setItem(SECRET_KEY, value);
+  if (await openSession()) {
+    loadCachedRecipes();
+    load().catch(() => {
+      if (!state.recipes.length) els.status.textContent = t("couldNotLoad");
+    });
+  }
 });
 
 applyStaticI18n();
 applyViewMode();
-loadCachedRecipes();
-load().catch(() => {
-  if (!state.recipes.length) {
+openSession().then((ok) => {
+  if (!ok) return;
+  loadCachedRecipes();
+  return load();
+}).catch(() => {
+  if (!state.recipes.length && !document.body.classList.contains("locked")) {
     els.status.textContent = t("couldNotLoad");
-  } else {
-    setOfflineBanner(true);
   }
 });

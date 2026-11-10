@@ -73,8 +73,8 @@ struct APIClient {
         return URLSession(configuration: config)
     }()
 
-    func fetchRecipes() async throws -> RecipesResponse {
-        try await decodeJSON(RecipesResponse.self, from: get("/api/recipes"))
+    func fetchRecipes(secret: String) async throws -> RecipesResponse {
+        try await decodeJSON(RecipesResponse.self, from: get("/api/recipes", secret: secret))
     }
 
     /// Reads a recipe out of a photo (card, cookbook page, screenshot — a
@@ -295,8 +295,8 @@ struct APIClient {
         return try Self.decoder.decode(IngestResult.self, from: data)
     }
 
-    func fetchPantry() async throws -> [String] {
-        try await decodeJSON(PantryResponse.self, from: get("/api/pantry")).items
+    func fetchPantry(secret: String) async throws -> [String] {
+        try await decodeJSON(PantryResponse.self, from: get("/api/pantry", secret: secret)).items
     }
 
     func updatePantry(items: [String], secret: String) async throws -> [String] {
@@ -329,8 +329,8 @@ struct APIClient {
         return try Self.decoder.decode(PantryResponse.self, from: data).items
     }
 
-    func fetchPantryInventory() async throws -> PantryInventoryResponse {
-        try await decodeJSON(PantryInventoryResponse.self, from: get("/api/pantry-inventory"))
+    func fetchPantryInventory(secret: String) async throws -> PantryInventoryResponse {
+        try await decodeJSON(PantryInventoryResponse.self, from: get("/api/pantry-inventory", secret: secret))
     }
 
     func updatePantryInventory(items: [PantryItem], categories: [String], secret: String) async throws -> PantryInventoryResponse {
@@ -363,8 +363,8 @@ struct APIClient {
         return try Self.decoder.decode(PantryInventoryResponse.self, from: data)
     }
 
-    func fetchMedicines() async throws -> MedicinesResponse {
-        try await decodeJSON(MedicinesResponse.self, from: get("/api/medicines"))
+    func fetchMedicines(secret: String) async throws -> MedicinesResponse {
+        try await decodeJSON(MedicinesResponse.self, from: get("/api/medicines", secret: secret))
     }
 
     func updateMedicines(items: [MedicineItem], categories: [String]? = nil, secret: String) async throws -> MedicinesResponse {
@@ -397,8 +397,8 @@ struct APIClient {
         return try Self.decoder.decode(MedicinesResponse.self, from: data)
     }
 
-    func fetchToBuy() async throws -> [ToBuyItem] {
-        try await decodeJSON(ToBuyResponse.self, from: get("/api/to-buy")).items
+    func fetchToBuy(secret: String) async throws -> [ToBuyItem] {
+        try await decodeJSON(ToBuyResponse.self, from: get("/api/to-buy", secret: secret)).items
     }
 
     func updateToBuy(items: [ToBuyItem], secret: String) async throws -> [ToBuyItem] {
@@ -541,13 +541,14 @@ struct APIClient {
         baseURLString.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }
 
-    private func get(_ path: String) async throws -> Data {
+    private func get(_ path: String, secret: String) async throws -> Data {
         guard let base = URL(string: trimmedBase),
               let url = URL(string: path, relativeTo: base)
         else { throw APIError.badURL }
         var request = URLRequest(url: url.absoluteURL)
         request.timeoutInterval = 15
         request.cachePolicy = .reloadIgnoringLocalCacheData
+        authorize(&request, secret: secret)
         let data: Data
         let response: URLResponse
         do {
@@ -560,6 +561,37 @@ struct APIClient {
             try throwForStatus(status, data: data)
         }
         return data
+    }
+
+    /// Recipe photos load through a plain URL (no header). A cookie on the
+    /// shared store is what URLSession attaches to those image requests.
+    func installAccessCookie(secret: String) {
+        let trimmed = secret.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let base = URL(string: trimmedBase), let host = base.host else { return }
+        let storage = HTTPCookieStorage.shared
+        for cookie in storage.cookies(for: base) ?? [] where cookie.name == "recipe_box_key" {
+            storage.deleteCookie(cookie)
+        }
+        guard !trimmed.isEmpty else { return }
+        var props: [HTTPCookiePropertyKey: Any] = [
+            .domain: host,
+            .path: "/",
+            .name: "recipe_box_key",
+            .value: trimmed,
+        ]
+        if base.scheme == "https" {
+            props[.secure] = "TRUE"
+        }
+        if let cookie = HTTPCookie(properties: props) {
+            storage.setCookie(cookie)
+        }
+    }
+
+    private func authorize(_ request: inout URLRequest, secret: String) {
+        let trimmed = secret.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        request.setValue(trimmed, forHTTPHeaderField: "X-Recipe-Box-Key")
+        installAccessCookie(secret: trimmed)
     }
 
     private func decodeJSON<T: Decodable>(_ type: T.Type, from data: Data) async throws -> T {

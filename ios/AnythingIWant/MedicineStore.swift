@@ -102,7 +102,7 @@ final class MedicineStore {
 
     private func fetchOnce() async -> Bool {
         do {
-            let payload = try await APIClient(baseURLString: serverURL).fetchMedicines()
+            let payload = try await APIClient(baseURLString: serverURL).fetchMedicines(secret: serverSecret)
             let nextCategories = mergeMedicineCategories(
                 stored: payload.categories ?? [],
                 itemCategories: payload.items.map(\.category)

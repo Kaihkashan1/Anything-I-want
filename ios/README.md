@@ -2,7 +2,7 @@
 
 Personal iOS app (home-screen name **Anything I want**). It is not set up for the App Store. You install it on your own iPhone from Xcode.
 
-The phone loads data from the hosted backend (`https://stocked-cookbook-cupboard.vercel.app`). Your Mac does not need to be running. Saving from Instagram still uses the Shortcut; this app is for browsing, filtering, cooking, and managing your cupboard.
+The phone loads data from the hosted backend (`https://anything-i-want.vercel.app`). Your Mac does not need to be running. Saving from Instagram still uses the Shortcut; this app is for browsing, filtering, cooking, and managing your cupboard.
 
 Two tabs:
 
@@ -20,7 +20,7 @@ Those are separate on purpose. Marking ingredients on the Cookbook list does **n
 3. In the project editor → **Signing & Capabilities** → **Team**, choose **Add Account…** and sign in with your Apple ID. Use your Personal Team. You do not need a paid developer program for this.
 4. Plug in the iPhone, unlock it, and tap **Trust** if asked. On the phone: **Settings → Privacy & Security → Developer Mode** (iOS 16+) if Xcode asks you to enable it.
 5. In the Xcode toolbar, pick your iPhone as the run destination, then press **Run**.
-6. The app talks to Vercel over the internet. If the list is empty, tap the gear and confirm the server is `https://stocked-cookbook-cupboard.vercel.app`.
+6. The app talks to Vercel over the internet. If the list is empty, tap the gear and confirm the server is `https://anything-i-want.vercel.app`.
 
 With a free Personal Team, Apple’s signature on the app lasts about **7 days**. After that, tapping Anything I want on the phone does nothing (or says the developer is untrusted) until you plug in and **Run** from Xcode again — that only renews the signature; it does not wipe recipes. A paid Apple Developer account / TestFlight is needed if someone else should keep the app without weekly Xcode. There are no user accounts or household invites: one Vercel URL and Edit key is one shared cookbook.
 
@@ -51,7 +51,7 @@ Favoriting, editing, and Cupboard writes need the server secret when `RECIPE_BOX
 
 Settings also shows **API usage** — today's Gemini reads vs the free daily cap, and this month's Apify spend vs credit (Apify half only when `APIFY_API_TOKEN` is set on the server).
 
-Default server URL is `https://stocked-cookbook-cupboard.vercel.app`.
+Default server URL is `https://anything-i-want.vercel.app`.
 
 ## Shortcuts
 

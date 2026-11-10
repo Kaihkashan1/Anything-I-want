@@ -124,8 +124,8 @@ final class PantryStore {
     private func fetchOnce() async -> Bool {
         do {
             let client = APIClient(baseURLString: serverURL)
-            async let inventory = client.fetchPantryInventory()
-            async let buyList = client.fetchToBuy()
+            async let inventory = client.fetchPantryInventory(secret: serverSecret)
+            async let buyList = client.fetchToBuy(secret: serverSecret)
             let payload = try await inventory
             let nextItems = payload.items
             let nextCategories = mergePantryCategories(

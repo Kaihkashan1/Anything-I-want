@@ -9,12 +9,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from google.genai.errors import APIError as GeminiAPIError
 
-from app.auth import require_secret
+from app.auth import require_secret, secret_is_enforced
 from app.config import ROOT, settings
 from app.errors import (
     GEMINI_DAILY_QUOTA,
@@ -100,15 +100,27 @@ async def favicon():
 
 @app.get("/health")
 async def health():
-    return {
-        "ok": True,
-        "gemini_key": bool(settings.gemini_api_key),
-        "sheet_id": bool(settings.google_sheet_id),
-        "service_account": settings.has_service_account(),
-    }
+    return {"ok": True}
 
 
-@app.get("/api/recipes")
+@app.post("/api/session", dependencies=[Depends(require_secret)])
+async def api_session(request: Request, response: Response, x_recipe_box_key: str | None = Header(default=None)):
+    """Trade a valid edit key for a cookie the browser sends on photo requests."""
+    if secret_is_enforced():
+        token = (x_recipe_box_key or "").strip() or request.cookies.get("recipe_box_key", "")
+        response.set_cookie(
+            key="recipe_box_key",
+            value=token,
+            httponly=True,
+            secure=request.url.scheme == "https",
+            samesite="lax",
+            max_age=60 * 60 * 24 * 400,
+            path="/",
+        )
+    return {"ok": True, "required": secret_is_enforced()}
+
+
+@app.get("/api/recipes", dependencies=[Depends(require_secret)])
 async def api_list_recipes():
     recipes = [_public(recipe) for recipe in list_recipes()]
     items = {
@@ -125,7 +137,7 @@ async def api_list_recipes():
     return {"recipes": recipes, "pantry": grouped_pantry(catalog)}
 
 
-@app.get("/api/recipes/{row_id}")
+@app.get("/api/recipes/{row_id}", dependencies=[Depends(require_secret)])
 async def api_get_recipe(row_id: int):
     recipe = get_recipe(row_id)
     if not recipe:
@@ -287,7 +299,7 @@ async def api_delete_recipe(row_id: int):
     return {"status": "deleted", "id": row_id}
 
 
-@app.get("/api/pantry")
+@app.get("/api/pantry", dependencies=[Depends(require_secret)])
 async def api_get_pantry():
     return {"items": get_have_items()}
 
@@ -297,7 +309,7 @@ async def api_put_pantry(body: PantryUpdate):
     return {"items": save_have_items(body.items)}
 
 
-@app.get("/api/pantry-inventory")
+@app.get("/api/pantry-inventory", dependencies=[Depends(require_secret)])
 async def api_get_pantry_inventory():
     """Full Pantry-tab inventory (amount, unit, expiry, …). Separate from
     /api/pantry, which remains the flat "What I have" fit-filter list."""
@@ -310,7 +322,7 @@ async def api_put_pantry_inventory(body: PantryInventoryUpdate):
     return save_pantry_inventory(body.items, categories=body.categories)
 
 
-@app.get("/api/to-buy")
+@app.get("/api/to-buy", dependencies=[Depends(require_secret)])
 async def api_get_to_buy():
     return {"items": get_to_buy_items()}
 
@@ -334,7 +346,7 @@ async def api_remove_to_buy_source(body: ToBuySourceChange):
     return {"items": remove_to_buy_source(body.text, recipe_id=body.recipe_id)}
 
 
-@app.get("/api/medicines")
+@app.get("/api/medicines", dependencies=[Depends(require_secret)])
 async def api_get_medicines():
     """The Medicines-tab cabinet — a sibling of /api/pantry-inventory with
     its own fields (purpose, expiry) and a client-editable category list
@@ -413,7 +425,7 @@ async def _ingest_watching_client(request: Request, content: str, processor=proc
     return task.result()
 
 
-@app.get("/api/recipes/{row_id}/photo")
+@app.get("/api/recipes/{row_id}/photo", dependencies=[Depends(require_secret)])
 async def api_recipe_photo(row_id: int):
     recipe = get_recipe(row_id)
     photo_id = str((recipe or {}).get("photo_id") or "").strip()
@@ -434,7 +446,7 @@ async def api_recipe_photo(row_id: int):
     return Response(
         content=data,
         media_type=content_type,
-        headers={"Cache-Control": "public, max-age=86400"},
+        headers={"Cache-Control": "private, no-store"},
     )
 
 
