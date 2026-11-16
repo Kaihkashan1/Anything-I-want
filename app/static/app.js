@@ -2216,11 +2216,7 @@ async function loadInventory(kind) {
 async function putInventory(kind, items) {
   const config = INVENTORY_KINDS[kind];
   const body = { items };
-  if (kind === "medicine") {
-    body.categories = state.medicineCategories.length
-      ? state.medicineCategories
-      : DEFAULT_MEDICINE_CATEGORIES;
-  }
+  body.categories = state[config.categoriesKey].length ? state[config.categoriesKey] : DEFAULT_CATEGORIES[kind];
   const response = await fetch(config.apiPath, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...authHeaders() },
@@ -2437,31 +2433,45 @@ function toggleItemCategory(chip) {
 
 // "+ New category" on the medicine form: adds the typed name to the list
 // and selects it.
-function addMedicineCategoryFromDraft() {
-  const input = document.getElementById("medicine-category-new");
-  const container = document.getElementById("medicine-category-chips");
+// "New category" on the Cupboard/Medicines forms: adds the typed name to
+// that kind's list and selects it. `prefix` is the form's id prefix
+// ("pantry-item" / "medicine").
+const CATEGORY_FORM_PREFIX = { cupboard: "pantry-item", medicine: "medicine" };
+const DEFAULT_CATEGORIES = { cupboard: DEFAULT_PANTRY_CATEGORIES, medicine: DEFAULT_MEDICINE_CATEGORIES };
+
+function addCategoryFromDraft(kind) {
+  const prefix = CATEGORY_FORM_PREFIX[kind];
+  const input = document.getElementById(`${prefix}-category-new`);
+  const container = document.getElementById(`${prefix}-category-chips`);
   if (!input || !container) return;
-  const picked = selectedCategoryChips("medicine-category-chips");
-  const name = addMedicineCategoryName(input.value);
+  const picked = selectedCategoryChips(`${prefix}-category-chips`);
+  const name = addCategoryName(kind, input.value);
   if (!name) return;
   const next = [...picked.filter((value) => value.toLowerCase() !== "other"), name];
-  container.innerHTML = categoryChipsHtml(state.medicineCategories, next);
+  container.innerHTML = categoryChipsHtml(state[INVENTORY_KINDS[kind].categoriesKey], next);
   input.value = "";
 }
 
-function addMedicineCategoryName(raw) {
+function addCategoryName(kind, raw) {
+  const key = INVENTORY_KINDS[kind].categoriesKey;
   const name = String(raw || "").trim().replace(/\s+/g, " ").slice(0, 40);
   if (!name) return null;
-  const list = state.medicineCategories.length
-    ? [...state.medicineCategories]
-    : [...DEFAULT_MEDICINE_CATEGORIES];
+  const list = state[key].length ? [...state[key]] : [...DEFAULT_CATEGORIES[kind]];
   const existing = list.find((category) => category.toLowerCase() === name.toLowerCase());
   if (existing) return existing;
   const other = list.findIndex((category) => category.toLowerCase() === "other");
   if (other >= 0) list.splice(other, 0, name);
   else list.push(name);
-  state.medicineCategories = list;
+  state[key] = list;
   return name;
+}
+
+function newCategoryRowHtml(kind) {
+  const prefix = CATEGORY_FORM_PREFIX[kind];
+  return `<div class="tag-add-row">
+          <input id="${prefix}-category-new" data-kind="${kind}" class="new-category-input" maxlength="40" autocomplete="off" placeholder="${escapeAttr(t("newCategory"))}">
+          <button class="pill-btn" type="button" data-action="add-item-category" data-kind="${kind}">${escapeHtml(t("addCategory"))}</button>
+        </div>`;
 }
 
 function openAddInventoryItem(kind) {
@@ -2495,7 +2505,8 @@ function statusOptionsHtml(statuses, selected) {
 
 function pantryItemFormHtml(item) {
   const config = INVENTORY_KINDS.cupboard;
-  const categories = state.pantryInventoryCategories.length ? state.pantryInventoryCategories : DEFAULT_PANTRY_CATEGORIES;
+  if (!state.pantryInventoryCategories.length) state.pantryInventoryCategories = [...DEFAULT_PANTRY_CATEGORIES];
+  const categories = state.pantryInventoryCategories;
   const selected = item ? itemCategories(item) : ["Other"];
   return `
     <div class="drawer-actions">
@@ -2514,6 +2525,7 @@ function pantryItemFormHtml(item) {
       <div class="field">
         <span>${escapeHtml(t("categories"))}</span>
         <div id="pantry-item-category-chips" class="chips">${categoryChipsHtml(categories, selected)}</div>
+        ${newCategoryRowHtml("cupboard")}
       </div>
       <label class="field">
         <span>${escapeHtml(t("amount"))}</span>
@@ -2547,6 +2559,7 @@ function categoryFields(categories) {
 function saveAddOrEditPantryItem() {
   const name = document.getElementById("pantry-item-name").value.trim();
   if (!name) return;
+  if (document.getElementById("pantry-item-category-new")?.value.trim()) addCategoryFromDraft("cupboard");
   const item = {
     id: document.getElementById("pantry-item-id").value || `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     name,
@@ -2582,10 +2595,7 @@ function medicineFormHtml(item) {
       <div class="field">
         <span>${escapeHtml(t("categories"))}</span>
         <div id="medicine-category-chips" class="chips">${categoryChipsHtml(categories, selected)}</div>
-        <div class="tag-add-row">
-          <input id="medicine-category-new" maxlength="40" autocomplete="off" placeholder="${escapeAttr(t("newCategory"))}">
-          <button class="pill-btn" type="button" data-action="add-medicine-category">${escapeHtml(t("addCategory"))}</button>
-        </div>
+        ${newCategoryRowHtml("medicine")}
       </div>
       <label class="field">
         <span>${escapeHtml(t("amount"))}</span>
@@ -2619,7 +2629,7 @@ function saveAddOrEditMedicine() {
   const name = document.getElementById("medicine-name").value.trim();
   if (!name) return;
   // A name typed into "New category" but not yet added still counts.
-  if (document.getElementById("medicine-category-new")?.value.trim()) addMedicineCategoryFromDraft();
+  if (document.getElementById("medicine-category-new")?.value.trim()) addCategoryFromDraft("medicine");
   const item = {
     id: document.getElementById("medicine-id").value || `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     name,
@@ -2979,7 +2989,9 @@ function updateToBuyItem(id, { text, category, qty, notes }) {
 function shopCategoryList() {
   const order = [];
   const seen = new Set();
-  const groceries = state.pantryInventoryCategories.length ? state.pantryInventoryCategories : DEFAULT_PANTRY_CATEGORIES;
+  // To-buy rows are filed under the built-in aisles only (app/store.py's
+  // _category_for_item), not the Cupboard's custom categories.
+  const groceries = DEFAULT_PANTRY_CATEGORIES;
   const medicines = state.medicineCategories || [];
   const key = currentChecklistKey();
   const names = key === "shop_medicines"
@@ -3566,8 +3578,8 @@ document.addEventListener("click", (event) => {
     case "toggle-item-category":
       toggleItemCategory(actionEl);
       break;
-    case "add-medicine-category":
-      addMedicineCategoryFromDraft();
+    case "add-item-category":
+      addCategoryFromDraft(actionEl.dataset.kind);
       break;
     default:
       break;
@@ -3590,9 +3602,9 @@ document.addEventListener("keydown", (event) => {
     }
     closeDrawer();
   }
-  if (event.key === "Enter" && event.target?.id === "medicine-category-new") {
+  if (event.key === "Enter" && event.target?.classList?.contains("new-category-input")) {
     event.preventDefault();
-    addMedicineCategoryFromDraft();
+    addCategoryFromDraft(event.target.dataset.kind);
   }
   if (event.key === "Enter" && event.target && (event.target.id === "add-tag-draft" || event.target.id === "edit-tag-draft")) {
     event.preventDefault();

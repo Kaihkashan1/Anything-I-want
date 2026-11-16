@@ -23,17 +23,20 @@ struct PantryGroup: Codable, Hashable, Identifiable {
 }
 
 /// Default Cupboard categories until Settings saves a custom list.
+/// The built-in grocery aisles (app/match.py's AISLE_CATEGORIES) — where
+/// the Cupboard list starts. Users can add, rename and delete categories on
+/// top of these; the server keeps custom names like "Snacks".
 let defaultPantryCategories = [
-    "Grains",
-    "Canned Goods",
-    "Baking Supplies",
-    "Snacks",
-    "Breakfast Items",
-    "Condiments & Sauces",
-    "Spices & Seasonings",
-    "Pantry Staples",
-    "Supplements / Vitamins",
-    "Plant-Based Proteins",
+    "Sauces & condiments",
+    "Meat",
+    "Seafood",
+    "Dairy & eggs",
+    "Nuts & seeds",
+    "Herbs & spices",
+    "Grains & pasta",
+    "Legumes",
+    "Fruit",
+    "Vegetables",
     "Other",
 ]
 let maxPantryCategoryLength = 40
@@ -44,15 +47,16 @@ func isLockedPantryCategory(_ name: String) -> Bool {
         .caseInsensitiveCompare("Other") == .orderedSame
 }
 
+/// A category name as stored — trimmed, with a built-in aisle's own
+/// spelling when it matches one case-insensitively ("dairy & EGGS" →
+/// "Dairy & eggs"), and "Other" for an empty name. Custom names are kept.
 func canonicalPantryCategory(_ raw: String) -> String {
     let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-    switch trimmed {
-    case "Grains & pantry", "Grains & cupboard": return "Grains"
-    case "Condiments & spices": return "Condiments & Sauces"
-    case "Produce", "Dairy & eggs", "Meat & seafood": return "Other"
-    case "": return "Other"
-    default: return trimmed
+    if trimmed.isEmpty { return "Other" }
+    if let aisle = defaultPantryCategories.first(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+        return aisle
     }
+    return trimmed
 }
 
 func normalizePantryCategoryName(_ raw: String) -> String? {

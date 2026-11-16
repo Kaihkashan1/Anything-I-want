@@ -330,21 +330,22 @@ class PantryCategoryTests(TestCase):
         soy = _normalize_to_buy_item({"text": "Soy sauce"})
         self.assertEqual(soy["category"], "Sauces & condiments")
 
-    def test_rebuckets_old_taxonomy_one_way(self):
+    def test_custom_category_names_are_kept(self):
+        # Grocery categories can be the user's own (e.g. "Snacks"), like
+        # medicine categories — no longer re-bucketed into aisles.
         from app.store import _normalize_pantry_item
 
-        oats = _normalize_pantry_item({"name": "Oats", "category": "Baking Supplies"})
-        self.assertEqual(oats["category"], "Grains & pasta")
-        lemon = _normalize_pantry_item({"name": "Lemon", "category": "Produce"})
-        self.assertEqual(lemon["category"], "Fruit")
-        tofu = _normalize_pantry_item({"name": "Tofu", "category": "Plant-Based Proteins"})
-        self.assertEqual(tofu["category"], "Legumes")
+        crisps = _normalize_pantry_item({"name": "Crisps", "category": "Snacks"})
+        self.assertEqual(crisps["category"], "Snacks")
 
-    def test_pantry_categories_follow_aisle_order(self):
+    def test_pantry_categories_start_as_aisles(self):
+        from unittest.mock import patch
+
         from app.match import AISLE_CATEGORIES
         from app.store import get_pantry_categories
 
-        self.assertEqual(get_pantry_categories([]), list(AISLE_CATEGORIES))
+        with patch("app.store._read_app_state", return_value={}):
+            self.assertEqual(get_pantry_categories([]), list(AISLE_CATEGORIES))
         self.assertEqual(AISLE_CATEGORIES[-1], "Other")
 
 

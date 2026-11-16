@@ -279,11 +279,9 @@ def _category_for_item(name: str, raw_category) -> str:
     """Honor a client aisle that is already in AISLE_CATEGORIES; otherwise
     classify from the ingredient name.
 
-    Stored pantry_inventory / to-buy rows that still carry the previous
-    cupboard taxonomy (Baking Supplies, Plant-Based Proteins, custom
-    names, …) are not in AISLE_CATEGORIES, so the next read or save
-    re-buckets them with pantry_category(). That move is one-way: the old
-    label is discarded, not aliased.
+    Used for to-buy rows, and for Cupboard items that arrive with no
+    category at all. Cupboard items otherwise keep whatever categories
+    they were given, custom ones included (see _pantry_categories_for_item).
     """
     override = _aisle_category(raw_category)
     if override:
@@ -316,13 +314,21 @@ def _dedupe_casefold(names: list[str]) -> list[str]:
     return real or out
 
 
+def _pantry_category_name(raw) -> str | None:
+    """A grocery category as typed — the built-in aisle's own spelling when
+    it matches one ("dairy & EGGS" → "Dairy & eggs"), otherwise the user's
+    own name (e.g. "Snacks"), trimmed like medicine categories."""
+    return _aisle_category(raw) or _normalize_medicine_category_name(raw)
+
+
 def _pantry_categories_for_item(name: str, raw: dict) -> list[str]:
-    """Aisles from the item's list that are real aisles; if none survive, the
-    single aisle classified from the name (see _category_for_item)."""
-    aisles = _dedupe_casefold(
-        [aisle for aisle in (_aisle_category(value) for value in _raw_categories(raw)) if aisle]
+    """The item's categories, custom ones included. Only an item that comes
+    in with no category at all (old rows) gets an aisle guessed from its
+    name (see _category_for_item)."""
+    names = _dedupe_casefold(
+        [label for label in (_pantry_category_name(value) for value in _raw_categories(raw)) if label]
     )
-    return aisles or [_category_for_item(name, None)]
+    return names or [_category_for_item(name, None)]
 
 
 def _normalize_pantry_item(raw: dict) -> dict | None:
@@ -357,6 +363,16 @@ def _normalize_pantry_item(raw: dict) -> dict | None:
     }
 
 
+def merge_pantry_categories(stored, item_categories) -> list[str]:
+    """The Cupboard's category list: the saved list (the built-in aisles
+    until the user changes it) plus any category an item uses, "Other"
+    last. Same rules as merge_medicine_categories."""
+    return merge_medicine_categories(
+        stored if stored else list(AISLE_CATEGORIES),
+        [_pantry_category_name(value) for value in item_categories or []],
+    )
+
+
 def get_pantry_inventory() -> list[dict]:
     raw_items = _read_app_state().get("pantry_inventory") or []
     cleaned: list[dict] = []
@@ -370,13 +386,20 @@ def get_pantry_inventory() -> list[dict]:
 
 
 def get_pantry_categories(items: list[dict] | None = None) -> list[str]:
-    return list(AISLE_CATEGORIES)
+    """Saved list + every category the items use. `items` are already
+    normalized (see get_pantry_inventory); read them when not given."""
+    if items is None:
+        items = get_pantry_inventory()
+    stored = _read_app_state().get("pantry_categories")
+    return merge_pantry_categories(
+        stored if isinstance(stored, list) else None,
+        [value for item in items for value in item.get("categories") or []],
+    )
 
 
 def save_pantry_inventory(items: list, categories: list[str] | None = None) -> dict:
-    # Client-supplied category lists are ignored; aisles come from
-    # AISLE_CATEGORIES. `categories` stays on the signature for the PUT body.
-    _ = categories
+    """`categories` is the client's whole list (it can add, rename and
+    delete categories); without one, the saved list is kept."""
     cleaned: list[dict] = []
     seen_ids: set[str] = set()
     for raw in items:
@@ -389,7 +412,11 @@ def save_pantry_inventory(items: list, categories: list[str] | None = None) -> d
             continue
         seen_ids.add(item["id"])
         cleaned.append(item)
-    names = get_pantry_categories(cleaned)
+    stored = _read_app_state().get("pantry_categories")
+    names = merge_pantry_categories(
+        categories if categories else (stored if isinstance(stored, list) else None),
+        [value for item in cleaned for value in item["categories"]],
+    )
     _write_app_state(pantry_inventory=cleaned, pantry_categories=names)
     return {"items": cleaned, "categories": names}
 
