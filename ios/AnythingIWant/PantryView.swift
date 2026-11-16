@@ -781,11 +781,8 @@ extension PantryItem {
                 border: nil
             )
         }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en")
-        formatter.setLocalizedDateFormatFromTemplate("MMMd")
         return ExpiryBadge(
-            label: formatter.string(from: date),
+            label: shortDateString(date, utc: true),
             fill: .clear,
             foreground: Theme.neutral600,
             border: Theme.divider

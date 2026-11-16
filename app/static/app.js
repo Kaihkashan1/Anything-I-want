@@ -508,12 +508,21 @@ function geminiResetsLabel() {
   return t("resetsAround", { time });
 }
 
+// Every date the app shows reads dd-mm-yy (e.g. 21-11-26). Mirrored by
+// shortDateString in ios/AnythingIWant/Models.swift.
+function formatShortDate(date, { utc = false } = {}) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  const day = utc ? date.getUTCDate() : date.getDate();
+  const month = (utc ? date.getUTCMonth() : date.getMonth()) + 1;
+  const year = (utc ? date.getUTCFullYear() : date.getFullYear()) % 100;
+  return `${pad(day)}-${pad(month)}-${pad(year)}`;
+}
+
 function apifyResetsLabel(resetsAt) {
   if (!resetsAt) return "";
-  const date = new Date(resetsAt);
-  if (Number.isNaN(date.getTime())) return "";
-  const formatted = date.toLocaleDateString(appDateLocale(), { month: "short", day: "numeric" });
-  return t("resetsOn", { date: formatted });
+  const formatted = formatShortDate(new Date(resetsAt));
+  return formatted ? t("resetsOn", { date: formatted }) : "";
 }
 
 async function fetchImportLog() {
@@ -2285,19 +2294,17 @@ function groupInventoryByCategory(items, categories) {
 
 // Expired/expiring-soon gets called out the same way in both tabs — most
 // useful for medicines, but equally relevant to anything in the cupboard.
-// `fullDate` (Medicines) always spells the date out, e.g. "Expired ·
-// 3 Mar 2026" / "Expires in 5d · 21 Nov 2026" / "Expires 21 Nov 2027".
+// `fullDate` (Medicines) always shows the date, e.g. "Expired ·
+// 03-03-26" / "Expires in 5d · 21-11-26" / "Expires 21-11-27".
 function expiryPillHtml(expiry, { fullDate = false } = {}) {
   if (!expiry) return "";
   const date = new Date(`${expiry}T00:00:00`);
   const days = Math.ceil((date - new Date()) / 86400000);
-  const spelled = Number.isNaN(date.getTime())
-    ? expiry
-    : date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  const spelled = formatShortDate(date) || expiry;
   const withDate = (label) => (fullDate ? `${label} · ${spelled}` : label);
   if (days < 0) return `<span class="pill danger">${escapeHtml(withDate(t("expired")))}</span>`;
   if (days <= 30) return `<span class="pill warm">${escapeHtml(withDate(t("expiresInDays", { n: days })))}</span>`;
-  return `<span class="pill">${escapeHtml(t("expiresOn", { date: fullDate ? spelled : expiry }))}</span>`;
+  return `<span class="pill">${escapeHtml(t("expiresOn", { date: spelled }))}</span>`;
 }
 
 function inventorySearchMatch(item, needle) {

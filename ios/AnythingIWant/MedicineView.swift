@@ -314,14 +314,9 @@ extension MedicineItem {
         let today = Calendar.current.startOfDay(for: Date())
         let day = Calendar.current.startOfDay(for: date)
         let diff = Calendar.current.dateComponents([.day], from: today, to: day).day ?? 0
-        let formatter = DateFormatter()
-        // en_GB gives "21 Nov 2026" (day first), matching the web app.
-        formatter.locale = Locale(identifier: "en_GB")
-        // parseExpiryDate reads the date at UTC midnight; format it in UTC
-        // too so it never shows the day before.
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.setLocalizedDateFormatFromTemplate("dMMMyyyy")
-        let fullDate = formatter.string(from: date)
+        // dd-mm-yy, like the web app; parseExpiryDate reads the date at UTC
+        // midnight, so format it in UTC too.
+        let fullDate = shortDateString(date, utc: true)
         if diff < 0 {
             let label = L("Expired")
             return ExpiryBadge(label: "\(label) · \(fullDate)", fill: Theme.accent800, foreground: Self.expiryCream, border: nil)

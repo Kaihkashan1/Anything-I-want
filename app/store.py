@@ -935,12 +935,19 @@ def _import_log_worksheet():
     return worksheet
 
 
+_LOG_DMY_FULL = re.compile(r"^(\d{2})-(\d{2})-\d{2}(\d{2})(\s.*)?$")
+
+
 def _display_log_timestamp(raw: str) -> str:
-    """Sheet used to write YYYY-MM-DD; show DD-MM-YYYY, keep the time suffix."""
+    """Shown as DD-MM-YY plus the time. The Sheet stores DD-MM-YYYY (older
+    rows YYYY-MM-DD); both are shortened here, storage is left alone."""
     text = (raw or "").strip()
     match = _LOG_YMD.match(text)
     if match:
-        return f"{match.group(3)}-{match.group(2)}-{match.group(1)}{match.group(4)}"
+        return f"{match.group(3)}-{match.group(2)}-{match.group(1)[2:]}{match.group(4)}"
+    match = _LOG_DMY_FULL.match(text)
+    if match:
+        return f"{match.group(1)}-{match.group(2)}-{match.group(3)}{match.group(4) or ''}"
     return text
 
 

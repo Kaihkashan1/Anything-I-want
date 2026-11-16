@@ -23,6 +23,18 @@ struct PantryGroup: Codable, Hashable, Identifiable {
 }
 
 /// Default Cupboard categories until Settings saves a custom list.
+/// Every date the app shows reads dd-mm-yy (e.g. 21-11-26), same as the web
+/// app's formatShortDate. Expiry dates are parsed at UTC midnight, so pass
+/// `utc: true` for those so they never show the day before.
+func shortDateString(_ date: Date, utc: Bool = false) -> String {
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = utc ? TimeZone(secondsFromGMT: 0) : .current
+    formatter.dateFormat = "dd-MM-yy"
+    return formatter.string(from: date)
+}
+
 /// The built-in grocery aisles (app/match.py's AISLE_CATEGORIES) — where
 /// the Cupboard list starts. Users can add, rename and delete categories on
 /// top of these; the server keeps custom names like "Snacks".
@@ -1073,21 +1085,13 @@ struct UsageStats: Decodable {
             return formatter
         }()
         private static let fallbackParser = ISO8601DateFormatter()
-        private static let display: DateFormatter = {
-            let formatter = DateFormatter()
-            formatter.locale = .current
-            formatter.setLocalizedDateFormatFromTemplate("MMMd")
-            return formatter
-        }()
-
-        /// "Resets Sep 15" — nil (caption just isn't shown) if `resetsAt`
+        /// "Resets 15-09-26" — nil (caption just isn't shown) if `resetsAt`
         /// is missing or in a shape that doesn't parse.
         var resetsLabel: String? {
             guard let resetsAt else { return nil }
             let date = Self.parser.date(from: resetsAt) ?? Self.fallbackParser.date(from: resetsAt)
             guard let date else { return nil }
-            Self.display.locale = Locale(identifier: "en")
-            return L("Resets \(Self.display.string(from: date))")
+            return L("Resets \(shortDateString(date))")
         }
     }
 }
