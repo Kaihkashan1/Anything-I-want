@@ -128,6 +128,8 @@ struct PantryView: View {
             }
             Spacer()
             HStack(spacing: 8) {
+                ShareListButton(text: cupboardExportText)
+
                 CircleIconButton(lucide: .gear) {
                     presentedSheet = segment == .groceries ? .categories : .medicineCategories
                 }
@@ -154,6 +156,13 @@ struct PantryView: View {
         .padding(.top, 66)
         .padding(.horizontal, Theme.screenPadding)
         .padding(.bottom, 16)
+    }
+
+    /// Whichever segment is showing, as plain text — see ListExport.
+    private var cupboardExportText: String? {
+        segment == .groceries
+            ? ListExport.groceries(pantry.items, categories: pantry.categories)
+            : ListExport.medicines(medicines.items, categories: medicines.categories)
     }
 
     private var cupboardKicker: String {

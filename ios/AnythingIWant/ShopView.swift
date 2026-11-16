@@ -158,17 +158,23 @@ struct ShopView: View {
                     .foregroundStyle(Theme.accent700)
             }
             Spacer()
-            Button {
-                presentedSheet = .add
-            } label: {
-                LucideIcon(.plus, size: 19)
-                    .foregroundStyle(Theme.bg)
-                    .frame(width: 44, height: 44)
-                    .background(Theme.accent)
-                    .clipShape(Circle())
+            HStack(spacing: 8) {
+                ShareListButton(
+                    text: ListExport.checklist(currentItems, listKey: segment.listKey, categories: shopCategories)
+                )
+
+                Button {
+                    presentedSheet = .add
+                } label: {
+                    LucideIcon(.plus, size: 19)
+                        .foregroundStyle(Theme.bg)
+                        .frame(width: 44, height: 44)
+                        .background(Theme.accent)
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(addTitle)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(addTitle)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 66)

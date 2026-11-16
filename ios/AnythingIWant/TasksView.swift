@@ -100,6 +100,8 @@ struct TasksView: View {
             }
             Spacer()
             HStack(spacing: 8) {
+                ShareListButton(text: ListExport.tasks(tasks.items, lists: tasks.lists))
+
                 CircleIconButton(lucide: .gear) {
                     presentedSheet = .lists
                 }
