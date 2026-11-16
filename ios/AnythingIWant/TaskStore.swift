@@ -5,7 +5,7 @@ import Observation
 
 /// The Tasks tab's lists start as these (app/store.py's TASK_LISTS); the
 /// user can add, rename and delete them. "Other" is always last and locked.
-let defaultTaskLists = ["Home", "Errands", "Trip", "Other"]
+let defaultTaskLists = ["Home", "Errands", "Trip", "India", "Other"]
 let maxTaskLists = 32
 
 func isLockedTaskList(_ name: String) -> Bool {

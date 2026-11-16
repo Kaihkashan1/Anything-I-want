@@ -2671,7 +2671,7 @@ function saveAddOrEditMedicine() {
 // get_tasks/save_tasks) — not a Shop/Pack list, since those merge
 // duplicate ingredients and sort by aisle. Same fetch/PUT-the-whole-list
 // shape as Cupboard/Medicines. Mirrored by ios/AnythingIWant/TasksView.swift.
-const DEFAULT_TASK_LISTS = ["Home", "Errands", "Trip", "Other"];
+const DEFAULT_TASK_LISTS = ["Home", "Errands", "Trip", "India", "Other"];
 
 function taskLists() {
   return state.taskLists.length ? state.taskLists : DEFAULT_TASK_LISTS;

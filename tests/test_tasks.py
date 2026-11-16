@@ -13,7 +13,7 @@ def _memory_state(monkeypatch):
 def test_tasks_round_trip(monkeypatch):
     _memory_state(monkeypatch)
     client = TestClient(main.app)
-    assert client.get("/api/tasks").json() == {"items": [], "lists": ["Home", "Errands", "Trip", "Other"]}
+    assert client.get("/api/tasks").json() == {"items": [], "lists": ["Home", "Errands", "Trip", "India", "Other"]}
     body = {
         "items": [
             {"id": "a", "title": "  Renew   passport ", "due": "2026-12-01T00:00:00Z", "list": "Trip"},
@@ -26,7 +26,7 @@ def test_tasks_round_trip(monkeypatch):
     assert a["title"] == "Renew passport" and a["due"] == "2026-12-01" and a["list"] == "Trip"
     assert a["done"] is False and a["done_at"] is None and a["created_at"]
     assert b["done"] is True and b["done_at"]
-    assert data["lists"] == ["Home", "Errands", "Trip", "Garden", "Other"]
+    assert data["lists"] == ["Home", "Errands", "Trip", "India", "Garden", "Other"]
     assert client.get("/api/tasks").json()["items"] == data["items"]
 
 

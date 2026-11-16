@@ -588,7 +588,7 @@ def save_medicines(items: list, categories: list | None = None) -> tuple[list[di
 # of lists (`task_lists`). Everything lives in the same single AppState
 # cell as the rest, so the size caps below keep one busy list from
 # pushing that cell past Google Sheets' 50,000-character limit.
-TASK_LISTS: tuple[str, ...] = ("Home", "Errands", "Trip", "Other")
+TASK_LISTS: tuple[str, ...] = ("Home", "Errands", "Trip", "India", "Other")
 _MAX_TASKS = 400
 _MAX_TASK_TITLE = 200
 _MAX_TASK_NOTES = 1000
