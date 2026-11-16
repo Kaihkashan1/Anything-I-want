@@ -339,6 +339,15 @@ def _fetch_instagram_via_apify(url: str, out_dir: Path) -> FetchedPost | None:
         items = response.json()
     except httpx.HTTPStatusError as exc:
         body = exc.response.text or ""
+        if exc.response.status_code in (401, 403) and not _looks_like_apify_limit(body):
+            # Apify rejects a revoked/rotated token with 401 — that's a
+            # config problem, not a private post, so say so.
+            logger.warning("Apify rejected the token (%s): %s", exc.response.status_code, body[:300])
+            raise RuntimeError(
+                "Apify rejected the API token (it may have been rotated or revoked). "
+                "Create a new token in Apify Console > Settings > API & Integrations, "
+                "set it as APIFY_API_TOKEN, and redeploy."
+            ) from exc
         if _looks_like_apify_limit(body):
             raise ApifyLimitError(
                 "Apify's monthly usage limit has been reached. The recipe wasn't "
@@ -348,6 +357,11 @@ def _fetch_instagram_via_apify(url: str, out_dir: Path) -> FetchedPost | None:
             ) from exc
         logger.warning("Apify Instagram fetch failed for %s: %s", url, body[:300])
         return None
+    except httpx.TimeoutException as exc:
+        logger.warning("Apify Instagram fetch timed out for %s: %s", url, exc)
+        raise RuntimeError(
+            f"Apify didn't finish fetching that Instagram post within {apify_timeout}s — try again shortly."
+        ) from exc
     except (httpx.HTTPError, ValueError) as exc:
         logger.warning("Apify Instagram fetch failed for %s: %s", url, exc)
         return None
