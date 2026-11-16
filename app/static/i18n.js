@@ -234,7 +234,6 @@ const I18N = {
     whatDoYouNeed: "What do you need?",
     quantity: "Quantity",
     quantityExample: "e.g. 2 cups",
-    categoryAuto: "Auto",
     optional: "Optional",
     notesPlaceholder: "Notes",
     qtyPlaceholder: "qty",

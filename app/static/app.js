@@ -3400,28 +3400,19 @@ function toBuyRowHtml(item) {
     </div>`;
 }
 
+// New items start in "Other" (no guessing the aisle from the name).
 function toBuyCategoryChipsHtml(selected) {
-  const categories = shopCategoryList();
-  const auto = selected == null || selected === "";
-  const autoChip = chipButtonHtml({
-    className: "chip",
-    action: "pick-to-buy-category",
-    dataAttr: "category",
-    value: "",
-    active: auto,
-    label: t("categoryAuto"),
-  });
-  const rest = categories.map((category) =>
+  const picked = String(selected || "Other").toLowerCase();
+  return shopCategoryList().map((category) =>
     chipButtonHtml({
       className: "chip",
       action: "pick-to-buy-category",
       dataAttr: "category",
       value: category,
-      active: !auto && category.toLowerCase() === String(selected).toLowerCase(),
+      active: category.toLowerCase() === picked,
       label: category,
     })
   ).join("");
-  return autoChip + rest;
 }
 
 function toBuyFormHtml(item) {
@@ -3436,7 +3427,7 @@ function toBuyFormHtml(item) {
         ? t("whatToBring")
         : t("whatDoYouNeed");
   const pack = key === "take_to_india" || key === "bring_to_germany";
-  const category = item?.category || "";
+  const category = item?.category || "Other";
   const extraFields = pack
     ? ""
     : `
@@ -3497,7 +3488,7 @@ function saveAddToBuy() {
   const text = document.getElementById("to-buy-text")?.value.trim();
   if (!text) return;
   const pack = currentChecklistKey() === "take_to_india" || currentChecklistKey() === "bring_to_germany";
-  const category = pack ? null : (document.getElementById("to-buy-category")?.value || null);
+  const category = pack ? null : (document.getElementById("to-buy-category")?.value || "Other");
   const qty = pack ? "" : (document.getElementById("to-buy-qty-new")?.value.trim() || "");
   const notes = document.getElementById("to-buy-notes-new")?.value.trim() || "";
   const editId = document.getElementById("to-buy-edit-id")?.value;
@@ -3840,8 +3831,8 @@ document.addEventListener("click", (event) => {
     case "pick-to-buy-category": {
       const input = document.getElementById("to-buy-category");
       const chips = document.getElementById("to-buy-category-chips");
-      if (input) input.value = actionEl.dataset.category || "";
-      if (chips) chips.innerHTML = toBuyCategoryChipsHtml(input?.value || "");
+      if (input) input.value = actionEl.dataset.category || "Other";
+      if (chips) chips.innerHTML = toBuyCategoryChipsHtml(input?.value);
       break;
     }
     case "save-to-buy":

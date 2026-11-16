@@ -36,7 +36,8 @@ struct ToBuyItemSheet: View {
         self.item = item
         self.onSave = onSave
         _text = State(initialValue: item?.text ?? "")
-        _category = State(initialValue: item?.category)
+        // New items start in "Other" — no "Auto" (guess-from-name) option.
+        _category = State(initialValue: item?.category ?? "Other")
         _qty = State(initialValue: item?.qty ?? "")
         _notes = State(initialValue: item?.notes ?? "")
     }
@@ -70,9 +71,6 @@ struct ToBuyItemSheet: View {
                     if showsCategoryAndQty {
                         field(kicker: L("Category")) {
                             FlowLayout(spacing: 7) {
-                                compactChip(L("Auto"), selected: category == nil) {
-                                    category = nil
-                                }
                                 ForEach(categories, id: \.self) { option in
                                     compactChip(option, selected: category?.caseInsensitiveCompare(option) == .orderedSame) {
                                         category = option
