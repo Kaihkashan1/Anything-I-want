@@ -12,7 +12,6 @@ from typing import Any
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from google.genai.errors import APIError as GeminiAPIError
 
 from app.auth import require_secret, secret_is_enforced
 from app.config import ROOT, settings
@@ -21,7 +20,8 @@ from app.errors import (
     NOT_A_RECIPE_MESSAGE,
     REQUEST_TIMEOUT_MESSAGE,
     friendly_message,
-    gemini_is_busy,
+    http_status_for,
+    known_message,
 )
 from app.extract import extract_recipe
 from app.fetch import extract_url, get_apify_usage
@@ -86,6 +86,16 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Anything I want", lifespan=lifespan)
+
+
+@app.exception_handler(Exception)
+async def unhandled_error(request: Request, exc: Exception):
+    """Anything an endpoint didn't catch itself (a Sheets outage while
+    saving the cupboard, a revoked service-account key, …) still comes back
+    as {"detail": "<what went wrong>"} — the shape both apps already show —
+    instead of a bare "Internal Server Error"."""
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=http_status_for(exc), content={"detail": friendly_message(exc)})
 
 
 @app.get("/")
@@ -186,7 +196,9 @@ async def api_create_recipe(request: Request):
         if isinstance(exc, PhotoStoreError):
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         logger.exception("Could not save recipe")
-        raise HTTPException(status_code=502, detail="Could not save that recipe. Try again.") from exc
+        raise HTTPException(
+            status_code=502, detail=known_message(exc) or "Could not save that recipe. Try again."
+        ) from exc
     if not created:
         raise HTTPException(status_code=502, detail="Could not save recipe")
     return _public(created)
@@ -224,13 +236,7 @@ async def api_extract_photo(photo: UploadFile = File(...)):
             used_backup = bool(getattr(exc, "used_backup", False))
             message = friendly_message(exc)
             log_import(None, "error", message, used_backup=used_backup)
-            if isinstance(exc, GeminiAPIError) and exc.code == 429:
-                status = 429
-            elif gemini_is_busy(exc):
-                status = 503
-            else:
-                status = 502
-            raise HTTPException(status_code=status, detail=message) from exc
+            raise HTTPException(status_code=http_status_for(exc), detail=message) from exc
     finally:
         tmp_path.unlink(missing_ok=True)
 
@@ -290,7 +296,9 @@ async def api_update_recipe(row_id: int, request: Request):
         if isinstance(exc, PhotoStoreError):
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         logger.exception("Could not update recipe %s", row_id)
-        raise HTTPException(status_code=502, detail="Could not save that recipe. Try again.") from exc
+        raise HTTPException(
+            status_code=502, detail=known_message(exc) or "Could not save that recipe. Try again."
+        ) from exc
     if not updated:
         raise HTTPException(status_code=404, detail="Recipe not found")
     return _public(updated)

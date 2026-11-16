@@ -12,7 +12,12 @@ from google.genai import types
 from pydantic import BaseModel, Field
 
 from app.config import settings
-from app.errors import NOT_A_RECIPE_MESSAGE, gemini_is_busy, gemini_is_quota_exhausted
+from app.errors import (
+    GEMINI_UNREADABLE_MESSAGE,
+    NOT_A_RECIPE_MESSAGE,
+    gemini_is_busy,
+    gemini_is_quota_exhausted,
+)
 from app.match import apply_section_labels
 from app.models import (
     RECIPE_TAGS,
@@ -320,7 +325,8 @@ def categorize_recipe(
         start = text.find("{")
         end = text.rfind("}")
         if start == -1 or end == -1:
-            raise RuntimeError(f"Could not parse category JSON: {text[:400]}")
+            logger.warning("Could not parse category JSON: %s", text[:400])
+            raise RuntimeError(GEMINI_UNREADABLE_MESSAGE)
         return RecipeCategory.model_validate(json.loads(text[start : end + 1]))
 
 
@@ -345,7 +351,8 @@ def _parse_recipe_set(text: str) -> list[Recipe]:
         try:
             recipes = [_parse_recipe(text)]
         except Exception:
-            raise RuntimeError(f"Could not parse recipe JSON: {text[:400]}")
+            logger.warning("Could not parse recipe JSON: %s", text[:400])
+            raise RuntimeError(GEMINI_UNREADABLE_MESSAGE)
     filled = [
         item
         for item in recipes
@@ -363,7 +370,8 @@ def _parse_recipe(text: str) -> Recipe:
         start = text.find("{")
         end = text.rfind("}")
         if start == -1 or end == -1:
-            raise RuntimeError(f"Could not parse recipe JSON: {text[:400]}")
+            logger.warning("Could not parse recipe JSON: %s", text[:400])
+            raise RuntimeError(GEMINI_UNREADABLE_MESSAGE)
         return Recipe.model_validate(json.loads(text[start : end + 1]))
 
 
@@ -432,7 +440,8 @@ def suggest_ingredient_sections(recipes: list[dict]) -> dict[int, list[str]]:
         start = text.find("{")
         end = text.rfind("}")
         if start == -1 or end == -1:
-            raise RuntimeError(f"Could not parse section JSON: {text[:400]}")
+            logger.warning("Could not parse section JSON: %s", text[:400])
+            raise RuntimeError(GEMINI_UNREADABLE_MESSAGE)
         parsed = _RecipeSectionBatch.model_validate(json.loads(text[start : end + 1]))
 
     out: dict[int, list[str]] = {}

@@ -301,13 +301,39 @@ def _pick_comment_text(item: dict, owner_username: str, url: str, token: str) ->
     return "\n\n".join(parts)
 
 
+def _apify_error_text(body: str) -> str:
+    """Apify's {"error": {"type", "message"}} body, as one short line."""
+    try:
+        error = json.loads(body).get("error") or {}
+        text = error.get("message") or error.get("type") or ""
+    except (ValueError, AttributeError):
+        text = ""
+    return (text or body or "no details").strip()[:200]
+
+
+def _apify_item_error_message(item: dict) -> str:
+    """The scraper reports a post it couldn't read as a dataset item with
+    `error` / `errorDescription` instead of failing the run."""
+    code = str(item.get("error") or "")
+    description = str(item.get("errorDescription") or "")
+    text = f"{code} {description}".lower()
+    if any(word in text for word in ("private", "restricted", "login", "log in")) or re.search(r"\bage\b", text):
+        return "That Instagram post is private or restricted, so it can't be fetched."
+    if any(word in text for word in ("not_found", "not found", "does not exist", "deleted", "unavailable", "404")):
+        return "That Instagram post wasn't found. It may have been deleted, or the link is wrong."
+    detail = (description or code).strip()[:200]
+    return f"Apify couldn't read that Instagram post: {detail}" if detail else (
+        "Apify couldn't read that Instagram post."
+    )
+
+
 def _fetch_instagram_via_apify(url: str, out_dir: Path) -> FetchedPost | None:
     """Caption + media + comments for a single Instagram post/reel via
     Apify's official instagram-post-scraper actor — no Instagram login
     involved at all, so it carries no risk to any Instagram account.
-    Returns None on an ordinary/transient failure; raises ApifyLimitError
-    when the failure looks like a usage-limit block, so that surfaces as a
-    real error rather than a silent degrade.
+    Raises ApifyLimitError for a usage-limit block and a RuntimeError
+    worded for people for everything else (bad token, timeout, private or
+    missing post, Apify outage), so the app says what actually went wrong.
 
     Chosen over the community (API Dojo) actors used earlier because this
     one is officially maintained by Apify, has a much larger track record
@@ -348,32 +374,58 @@ def _fetch_instagram_via_apify(url: str, out_dir: Path) -> FetchedPost | None:
                 "Create a new token in Apify Console > Settings > API & Integrations, "
                 "set it as APIFY_API_TOKEN, and redeploy."
             ) from exc
-        if _looks_like_apify_limit(body):
+        status = exc.response.status_code
+        if status == 402 or _looks_like_apify_limit(body):
             raise ApifyLimitError(
                 "Apify's monthly usage limit has been reached. The recipe wasn't "
                 "fetched. It resets on your personal Apify billing-cycle date (Apify "
                 "Console > Billing > Current period shows exactly when) — not the 1st "
                 "of the calendar month — or you can upgrade your Apify plan sooner."
             ) from exc
-        logger.warning("Apify Instagram fetch failed for %s: %s", url, body[:300])
-        return None
+        logger.warning("Apify Instagram fetch failed for %s (%s): %s", url, status, body[:300])
+        if status == 404:
+            raise RuntimeError(
+                f"Apify couldn't find the actor {settings.apify_instagram_actor!r}. "
+                "Check APIFY_INSTAGRAM_ACTOR."
+            ) from exc
+        if status == 408:
+            raise RuntimeError(
+                "Apify's Instagram fetch ran out of time. Try again shortly."
+            ) from exc
+        if status == 429:
+            raise RuntimeError(
+                "Apify is rate-limiting requests right now. Wait a minute and try again."
+            ) from exc
+        if status >= 500:
+            raise RuntimeError(
+                f"Apify is having trouble right now ({status}). Try again shortly."
+            ) from exc
+        raise RuntimeError(
+            f"Apify couldn't run the Instagram fetch ({status}): {_apify_error_text(body)}"
+        ) from exc
     except httpx.TimeoutException as exc:
         logger.warning("Apify Instagram fetch timed out for %s: %s", url, exc)
         raise RuntimeError(
             f"Apify didn't finish fetching that Instagram post within {apify_timeout}s — try again shortly."
         ) from exc
-    except (httpx.HTTPError, ValueError) as exc:
+    except httpx.HTTPError as exc:
         logger.warning("Apify Instagram fetch failed for %s: %s", url, exc)
-        return None
+        raise RuntimeError("Couldn't reach Apify. Check the connection and try again.") from exc
+    except ValueError as exc:
+        logger.warning("Apify sent back something that isn't JSON for %s: %s", url, exc)
+        raise RuntimeError("Apify sent back an unreadable answer. Try again shortly.") from exc
 
     if not items or not isinstance(items, list):
         logger.warning("Apify returned no results for %s", url)
-        return None
+        raise RuntimeError(
+            "Apify found nothing at that link. The post may be private, deleted, "
+            "or the link may be wrong."
+        )
 
     item = items[0]
     if item.get("error"):
         logger.warning("Apify returned an error item for %s: %s", url, item)
-        return None
+        raise RuntimeError(_apify_item_error_message(item))
 
     caption = (item.get("caption") or "").strip()
     media_id = str(item.get("id") or item.get("shortCode") or "")
@@ -444,7 +496,10 @@ def _fetch_instagram_via_apify(url: str, out_dir: Path) -> FetchedPost | None:
 
     if video_path is None and thumbnail_path is None and not caption and not slides:
         logger.warning("Apify result for %s had no caption or media", url)
-        return None
+        raise RuntimeError(
+            "Apify found the post, but it had no caption and its video/images "
+            "couldn't be downloaded. Try again shortly."
+        )
 
     return FetchedPost(
         url=url,
@@ -547,8 +602,12 @@ def fetch_article(url: str) -> FetchedPost:
     try:
         response = httpx.get(url, follow_redirects=True, timeout=20, headers=headers)
         response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(_page_status_message(exc.response.status_code)) from exc
+    except httpx.TimeoutException as exc:
+        raise RuntimeError("That site took too long to respond. Try again shortly.") from exc
     except httpx.HTTPError as exc:
-        raise RuntimeError(f"Could not fetch that page. {exc}") from exc
+        raise RuntimeError("Couldn't reach that site. Check the link and try again.") from exc
 
     html = response.text
     structured = extract_jsonld_recipe_text(html)
@@ -796,17 +855,52 @@ def extract_og_image(html: str, base_url: str) -> str | None:
     return urljoin(base_url, match.group(1))
 
 
+def _page_status_message(status: int) -> str:
+    if status in (401, 403):
+        return (
+            f"That site blocked the download ({status}). Try copying the recipe "
+            "text into the app instead."
+        )
+    if status in (404, 410):
+        return f"That page doesn't exist ({status}). Check the link."
+    if status == 429:
+        return "That site is rate-limiting requests. Wait a minute and try again."
+    if status >= 500:
+        return f"That site is having trouble right now ({status}). Try again shortly."
+    return f"Could not fetch that page ({status})."
+
+
+def _video_error_message(detail: str) -> str:
+    """yt-dlp's DownloadError text → what actually went wrong."""
+    lowered = detail.lower()
+    if "private" in lowered:
+        return "That video is private, so it can't be fetched."
+    if "sign in" in lowered or "login" in lowered or "log in" in lowered or re.search(r"\bage\b", lowered):
+        return "That video needs a signed-in account (age- or login-restricted), so it can't be fetched."
+    if "not available in your country" in lowered or "geo" in lowered:
+        return "That video isn't available in the server's region."
+    if any(word in lowered for word in ("unavailable", "removed", "deleted", "does not exist", "404")):
+        return "That video isn't available any more. It may have been removed, or the link is wrong."
+    if "429" in lowered or "too many requests" in lowered or "rate" in lowered:
+        return "That site is rate-limiting downloads right now. Try again in a few minutes."
+    trimmed = detail.replace("ERROR:", "").strip()
+    return f"Could not fetch that video. {trimmed[:300]}".strip()
+
+
 def _extract(url: str, out_dir: Path, download: bool) -> dict:
     opts = _ydl_opts(out_dir, download=download)
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=download)
         if not info:
-            raise RuntimeError("Could not fetch the Instagram post (empty response).")
+            raise RuntimeError("Could not fetch that video (the site sent back nothing).")
         return _unwrap(info)
     except yt_dlp.utils.DownloadError as exc:
         detail = str(exc).strip().replace("\n", " ")
-        raise RuntimeError(f"Could not fetch the Instagram post. {detail[:500]}") from exc
+        if "Unsupported URL" in detail:
+            # fetch_post() looks for this to fall back to an article fetch.
+            raise RuntimeError(f"Unsupported URL: {detail[:200]}") from exc
+        raise RuntimeError(_video_error_message(detail)) from exc
 
 
 def _has_video_formats(info: dict) -> bool:
