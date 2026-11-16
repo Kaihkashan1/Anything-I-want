@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -10,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.auth import require_secret, secret_is_enforced
@@ -98,9 +99,24 @@ async def unhandled_error(request: Request, exc: Exception):
     return JSONResponse(status_code=http_status_for(exc), content={"detail": friendly_message(exc)})
 
 
+def _versioned_index() -> str:
+    """index.html with ?v=<content hash> on app.js, i18n.js and styles.css,
+    so a browser picks up a new deploy instead of reusing a cached script
+    (the old copy kept, e.g., the single-choice category dropdown)."""
+    html = (STATIC / "index.html").read_text()
+    for name in ("app.js", "i18n.js", "styles.css"):
+        digest = hashlib.sha256((STATIC / name).read_bytes()).hexdigest()[:10]
+        html = html.replace(f"/static/{name}\"", f"/static/{name}?v={digest}\"")
+    return html
+
+
+_INDEX_HTML = _versioned_index()
+
+
 @app.get("/")
 async def home():
-    return FileResponse(STATIC / "index.html")
+    # no-cache: always revalidate the page itself, so new ?v= links are seen.
+    return HTMLResponse(_INDEX_HTML, headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/favicon.ico")
