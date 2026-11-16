@@ -9,7 +9,7 @@ struct PantryItemSheet: View {
     var onSave: (PantryItem) -> Void
 
     @State private var name: String
-    @State private var category: String
+    @State private var selectedCategories: [String]
     @State private var amountText: String
     @State private var unit: PantryUnit
     @State private var status: PantryItemStatus
@@ -21,14 +21,13 @@ struct PantryItemSheet: View {
         let names = categories.isEmpty ? defaultPantryCategories : categories
         self.item = item
         self.onSave = onSave
-        if let current = item?.pantryCategory,
-           !names.contains(where: { $0.caseInsensitiveCompare(current) == .orderedSame }) {
-            self.categories = names + [current]
-        } else {
-            self.categories = names
-        }
+        // Keep any of the item's categories that the list doesn't know yet
+        // (e.g. renamed elsewhere) selectable.
+        let current = item?.pantryCategories ?? []
+        self.categories = names + current.filter { !categoryListContains(names, $0) }
         _name = State(initialValue: item?.name ?? "")
-        _category = State(initialValue: item?.pantryCategory ?? (names.first ?? "Other"))
+        // New items start in Other.
+        _selectedCategories = State(initialValue: cleanPantryItemCategories(item?.pantryCategories ?? ["Other"]))
         if let amount = item?.amount {
             _amountText = State(initialValue: amount.rounded() == amount
                 ? String(Int(amount.rounded()))
@@ -81,8 +80,8 @@ struct PantryItemSheet: View {
                     field(kicker: L("Category")) {
                         FlowLayout(spacing: 7) {
                             ForEach(categories, id: \.self) { option in
-                                compactChip(option, selected: category.caseInsensitiveCompare(option) == .orderedSame) {
-                                    category = option
+                                compactChip(option, selected: categoryListContains(selectedCategories, option)) {
+                                    selectedCategories = toggledCategorySelection(selectedCategories, option)
                                 }
                             }
                         }
@@ -245,7 +244,7 @@ struct PantryItemSheet: View {
         let saved = PantryItem(
             id: item?.id ?? UUID().uuidString,
             name: trimmed,
-            category: category,
+            categories: cleanPantryItemCategories(selectedCategories),
             amount: amount > 0 ? amount : 1,
             unit: unit,
             status: status,

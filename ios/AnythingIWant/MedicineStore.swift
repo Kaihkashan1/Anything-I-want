@@ -35,13 +35,14 @@ final class MedicineStore {
 
     var itemCount: Int { items.count }
 
-    /// Items grouped in server category order; empty categories omitted.
+    /// Items grouped in server category order; empty categories omitted. An
+    /// item in several categories appears under each of them.
     private(set) var groupedItems: [(category: String, items: [MedicineItem])] = []
 
     private func rebuildGroups() {
-        let names = mergeMedicineCategories(stored: categories, itemCategories: items.map(\.category))
+        let names = mergeMedicineCategories(stored: categories, itemCategories: items.flatMap(\.categories))
         groupedItems = names.compactMap { name in
-            let rows = items.filter { $0.category.caseInsensitiveCompare(name) == .orderedSame }
+            let rows = items.filter { $0.isIn(category: name) }
                 .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             guard !rows.isEmpty else { return nil }
             return (name, rows)
@@ -105,7 +106,7 @@ final class MedicineStore {
             let payload = try await APIClient(baseURLString: serverURL).fetchMedicines(secret: serverSecret)
             let nextCategories = mergeMedicineCategories(
                 stored: payload.categories ?? [],
-                itemCategories: payload.items.map(\.category)
+                itemCategories: payload.items.flatMap(\.categories)
             )
             if items != payload.items { items = payload.items }
             if categories != nextCategories { categories = nextCategories }
@@ -125,8 +126,10 @@ final class MedicineStore {
             next.append(item)
         }
         var nextCategories = categories
-        if let name = normalizeMedicineCategoryName(item.category),
-           !nextCategories.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) {
+        for raw in item.categories {
+            guard let name = normalizeMedicineCategoryName(raw),
+                  !nextCategories.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame })
+            else { continue }
             if let other = nextCategories.firstIndex(where: { $0.caseInsensitiveCompare("Other") == .orderedSame }) {
                 nextCategories.insert(name, at: other)
             } else {
@@ -168,9 +171,9 @@ final class MedicineStore {
         var next = categories
         next[index] = name
         let nextItems = items.map { item -> MedicineItem in
-            guard item.category.caseInsensitiveCompare(from) == .orderedSame else { return item }
+            guard item.isIn(category: from) else { return item }
             var moved = item
-            moved.category = name
+            moved.categories = cleanMedicineItemCategories(replacingCategory(item.categories, from, with: name))
             return moved
         }
         replaceInventory(nextItems, categories: next)
@@ -185,9 +188,11 @@ final class MedicineStore {
             ?? "Other"
         let nextCategories = remaining.isEmpty ? ["Other"] : remaining
         let nextItems = items.map { item -> MedicineItem in
-            guard item.category.caseInsensitiveCompare(name) == .orderedSame else { return item }
+            guard item.isIn(category: name) else { return item }
             var moved = item
-            moved.category = fallback
+            // Drop just this category; an item left with none falls back.
+            let rest = replacingCategory(item.categories, name, with: nil)
+            moved.categories = cleanMedicineItemCategories(rest.isEmpty ? [fallback] : rest)
             return moved
         }
         replaceInventory(nextItems, categories: nextCategories)
@@ -197,7 +202,7 @@ final class MedicineStore {
         let previousItems = items
         let previousCategories = categories
         items = next
-        categories = mergeMedicineCategories(stored: nextCategories, itemCategories: next.map(\.category))
+        categories = mergeMedicineCategories(stored: nextCategories, itemCategories: next.flatMap(\.categories))
         persistCache()
         let snapshotItems = items
         let snapshotCategories = categories
@@ -210,7 +215,7 @@ final class MedicineStore {
                     if let remote = confirmed.categories, !remote.isEmpty {
                         categories = mergeMedicineCategories(
                             stored: remote,
-                            itemCategories: confirmed.items.map(\.category)
+                            itemCategories: confirmed.items.flatMap(\.categories)
                         )
                     }
                     persistCache()

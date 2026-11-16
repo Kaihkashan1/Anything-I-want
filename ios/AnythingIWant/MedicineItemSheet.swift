@@ -30,7 +30,7 @@ struct MedicineItemSheet: View {
     var onSave: (MedicineItem) -> Void
 
     @State private var name: String
-    @State private var category: String
+    @State private var selectedCategories: [String]
     @State private var amountText: String
     @State private var unit: MedicineUnit
     @State private var status: PantryItemStatus
@@ -43,14 +43,13 @@ struct MedicineItemSheet: View {
         let names = categories.isEmpty ? defaultMedicineCategories : categories
         self.item = item
         self.onSave = onSave
-        if let current = item?.category,
-           !names.contains(where: { $0.caseInsensitiveCompare(current) == .orderedSame }) {
-            self.categories = names + [current]
-        } else {
-            self.categories = names
-        }
+        // Keep any of the item's categories that the list doesn't know yet
+        // (e.g. renamed elsewhere) selectable.
+        let current = item?.categories ?? []
+        self.categories = names + current.filter { !categoryListContains(names, $0) }
         _name = State(initialValue: item?.name ?? "")
-        _category = State(initialValue: item?.category ?? (names.first ?? "Other"))
+        // New items start in Other.
+        _selectedCategories = State(initialValue: cleanMedicineItemCategories(item?.categories ?? ["Other"]))
         if let amount = item?.amount {
             _amountText = State(initialValue: amount.rounded() == amount
                 ? String(Int(amount.rounded()))
@@ -104,8 +103,8 @@ struct MedicineItemSheet: View {
                     field(kicker: L("Category")) {
                         FlowLayout(spacing: 7) {
                             ForEach(categories, id: \.self) { option in
-                                compactChip(option, selected: category.caseInsensitiveCompare(option) == .orderedSame) {
-                                    category = option
+                                compactChip(option, selected: categoryListContains(selectedCategories, option)) {
+                                    selectedCategories = toggledCategorySelection(selectedCategories, option)
                                 }
                             }
                         }
@@ -278,7 +277,7 @@ struct MedicineItemSheet: View {
         let saved = MedicineItem(
             id: item?.id ?? UUID().uuidString,
             name: trimmed,
-            category: category,
+            categories: cleanMedicineItemCategories(selectedCategories),
             amount: amount > 0 ? amount : 1,
             unit: unit,
             status: status,

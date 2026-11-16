@@ -604,28 +604,43 @@ final class RecipeStore {
     }
 
     private func updateVisible() {
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        var rows = recipes.filter { recipe in
-            if favoritesOnly, !recipe.favorite { return false }
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        // (recipe, search score, original position) — the position keeps
+        // ties in newest-first order, since Swift's sort isn't stable.
+        var scored: [(recipe: Recipe, score: Int, index: Int)] = []
+        for (index, recipe) in recipes.enumerated() {
+            if favoritesOnly, !recipe.favorite { continue }
             // Same result as tagFilters.isSubset(of: Set(recipe.tags)), without
             // allocating a fresh Set per recipe on every keystroke — tagFilters
             // and recipe.tags are both tiny, so a linear scan is cheaper.
-            if !tagFilters.isEmpty, !tagFilters.allSatisfy(recipe.tags.contains) { return false }
-            if let courseFilter, recipe.course != courseFilter { return false }
-            if !recipe.matchesSourceFilter(sourceFilters) { return false }
-            if needle.isEmpty { return true }
-            return recipeTitleMatches(recipe.title, query: needle)
+            if !tagFilters.isEmpty, !tagFilters.allSatisfy(recipe.tags.contains) { continue }
+            if let courseFilter, recipe.course != courseFilter { continue }
+            if !recipe.matchesSourceFilter(sourceFilters) { continue }
+            if needle.isEmpty {
+                scored.append((recipe, 0, index))
+                continue
+            }
+            // Semantic search over title, tags, course and ingredients —
+            // see RecipeSearch.swift (mirrors app.js).
+            let score = recipeSearchScore(recipe, query: needle)
+            if score > 0 { scored.append((recipe, score, index)) }
         }
 
         switch sortOption {
         case .recent:
-            break // recipes already arrive newest-first from the server
+            // Recipes already arrive newest-first from the server; with a
+            // query, best match first and newest-first among ties.
+            if !needle.isEmpty {
+                scored.sort { lhs, rhs in
+                    lhs.score != rhs.score ? lhs.score > rhs.score : lhs.index < rhs.index
+                }
+            }
         case .az:
-            rows.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+            scored.sort { $0.recipe.title.localizedCaseInsensitiveCompare($1.recipe.title) == .orderedAscending }
         case .za:
-            rows.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedDescending }
+            scored.sort { $0.recipe.title.localizedCaseInsensitiveCompare($1.recipe.title) == .orderedDescending }
         }
-        visibleRecipes = rows
+        visibleRecipes = scored.map { $0.recipe }
         matchesByID = [:]
     }
 

@@ -57,13 +57,14 @@ final class PantryStore {
         return "\(itemPart) · \(buyPart)"
     }
 
-    /// Items grouped in saved category order; empty categories omitted.
+    /// Items grouped in saved category order; empty categories omitted. An
+    /// item in several categories appears under each of them.
     /// Rebuilt when `items` or `categories` change rather than on every Cupboard body.
     private(set) var groupedItems: [(category: String, items: [PantryItem])] = []
 
     private func rebuildGroups() {
-        groupedItems = mergePantryCategories(stored: categories, itemCategories: items.map(\.category)).compactMap { name in
-            let rows = items.filter { $0.pantryCategory.caseInsensitiveCompare(name) == .orderedSame }
+        groupedItems = mergePantryCategories(stored: categories, itemCategories: items.flatMap(\.categories)).compactMap { name in
+            let rows = items.filter { $0.isIn(category: name) }
                 .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             guard !rows.isEmpty else { return nil }
             return (name, rows)
@@ -130,7 +131,7 @@ final class PantryStore {
             let nextItems = payload.items
             let nextCategories = mergePantryCategories(
                 stored: payload.categories ?? categories,
-                itemCategories: nextItems.map(\.category)
+                itemCategories: nextItems.flatMap(\.categories)
             )
             let nextBuy = mergeToBuyNotes(server: try await buyList, local: toBuy)
             if items != nextItems { items = nextItems }
@@ -166,7 +167,7 @@ final class PantryStore {
         let previousCategories = categories
         items = next
         if let nextCategories {
-            categories = mergePantryCategories(stored: nextCategories, itemCategories: next.map(\.category))
+            categories = mergePantryCategories(stored: nextCategories, itemCategories: next.flatMap(\.categories))
         }
         persistCache()
         let snapshotItems = items
@@ -178,7 +179,7 @@ final class PantryStore {
                 if items == snapshotItems, categories == snapshotCategories {
                     items = confirmed.items
                     if let remote = confirmed.categories {
-                        categories = mergePantryCategories(stored: remote, itemCategories: confirmed.items.map(\.category))
+                        categories = mergePantryCategories(stored: remote, itemCategories: confirmed.items.flatMap(\.categories))
                     }
                     persistCache()
                 }
@@ -221,9 +222,9 @@ final class PantryStore {
         var next = categories
         next[index] = name
         let nextItems = items.map { item -> PantryItem in
-            guard item.pantryCategory.caseInsensitiveCompare(from) == .orderedSame else { return item }
+            guard item.isIn(category: from) else { return item }
             var moved = item
-            moved.category = name
+            moved.categories = cleanPantryItemCategories(replacingCategory(item.pantryCategories, from, with: name))
             return moved
         }
         replaceInventory(nextItems, categories: next)
@@ -238,9 +239,11 @@ final class PantryStore {
             ?? "Other"
         let nextCategories = remaining.isEmpty ? ["Other"] : remaining
         let nextItems = items.map { item -> PantryItem in
-            guard item.pantryCategory.caseInsensitiveCompare(name) == .orderedSame else { return item }
+            guard item.isIn(category: name) else { return item }
             var moved = item
-            moved.category = fallback
+            // Drop just this category; an item left with none falls back.
+            let rest = replacingCategory(item.pantryCategories, name, with: nil)
+            moved.categories = cleanPantryItemCategories(rest.isEmpty ? [fallback] : rest)
             return moved
         }
         replaceInventory(nextItems, categories: nextCategories)
@@ -441,7 +444,7 @@ final class PantryStore {
         items = payload.items
         toBuy = payload.toBuy
         if let stored = payload.categories, !stored.isEmpty {
-            categories = mergePantryCategories(stored: stored, itemCategories: payload.items.map(\.category))
+            categories = mergePantryCategories(stored: stored, itemCategories: payload.items.flatMap(\.categories))
         }
     }
 

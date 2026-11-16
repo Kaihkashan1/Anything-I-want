@@ -103,12 +103,77 @@ enum PantryItemStatus: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// Ordered, case-insensitively deduped, never empty, and "Other" only when
+/// nothing else is set — the shape both
+/// PantryItem.categories and MedicineItem.categories keep. The first entry
+/// is the primary one (what older clients see as `category`).
+func cleanItemCategories(_ raw: [String], normalize: (String) -> String?) -> [String] {
+    var names: [String] = []
+    var seen = Set<String>()
+    for value in raw {
+        guard let name = normalize(value) else { continue }
+        let key = name.lowercased()
+        guard !seen.contains(key) else { continue }
+        seen.insert(key)
+        names.append(name)
+    }
+    // "Other" is only the fallback: an item with any real category isn't
+    // also filed under Other (the server applies the same rule).
+    let real = names.filter { $0.caseInsensitiveCompare("Other") != .orderedSame }
+    return real.isEmpty ? ["Other"] : real
+}
+
+func cleanPantryItemCategories(_ raw: [String]) -> [String] {
+    cleanItemCategories(raw, normalize: normalizePantryCategoryName)
+}
+
+func cleanMedicineItemCategories(_ raw: [String]) -> [String] {
+    cleanItemCategories(raw, normalize: normalizeMedicineCategoryName)
+}
+
+/// Swaps `from` for `to` in a category list (case-insensitive), or drops
+/// it when `to` is nil — used by the category rename/delete flows.
+func replacingCategory(_ list: [String], _ from: String, with to: String?) -> [String] {
+    var out: [String] = []
+    for name in list {
+        if name.caseInsensitiveCompare(from) == .orderedSame {
+            if let to { out.append(to) }
+        } else {
+            out.append(name)
+        }
+    }
+    return out
+}
+
+func categoryListContains(_ list: [String], _ name: String) -> Bool {
+    list.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+}
+
+/// Multi-select chip tap in the item sheets. Tapping "Other" selects only
+/// Other; picking a real category drops Other; deselecting the last real
+/// category falls back to ["Other"].
+func toggledCategorySelection(_ current: [String], _ option: String) -> [String] {
+    if option.caseInsensitiveCompare("Other") == .orderedSame {
+        return ["Other"]
+    }
+    var next = current.filter { $0.caseInsensitiveCompare("Other") != .orderedSame }
+    if categoryListContains(next, option) {
+        next.removeAll { $0.caseInsensitiveCompare(option) == .orderedSame }
+    } else {
+        next.append(option)
+    }
+    return next.isEmpty ? ["Other"] : next
+}
+
 /// One row on the Pantry tab's Items list — independent of recipe `have`
 /// fit filtering and of `PantryGroup` (the catalog of ingredient names).
+/// An item can sit in several categories; the list shows it under each.
 struct PantryItem: Codable, Hashable, Identifiable {
     var id: String
     var name: String
-    var category: String
+    /// Never empty; first is primary. Always set through
+    /// cleanPantryItemCategories.
+    var categories: [String]
     var amount: Double
     var unit: PantryUnit
     var status: PantryItemStatus
@@ -116,12 +181,26 @@ struct PantryItem: Codable, Hashable, Identifiable {
     var expiry: String?
     var notes: String
 
+    /// The primary category — what the server also stores as `category`
+    /// for older clients.
+    var category: String {
+        get { categories.first ?? "Other" }
+        set { categories = cleanPantryItemCategories([newValue]) }
+    }
+
     var pantryCategory: String { canonicalPantryCategory(category) }
+
+    var pantryCategories: [String] { categories.map(canonicalPantryCategory) }
+
+    func isIn(category name: String) -> Bool {
+        categoryListContains(pantryCategories, name)
+    }
 
     init(
         id: String = UUID().uuidString,
         name: String,
         category: String = "Other",
+        categories: [String]? = nil,
         amount: Double = 1,
         unit: PantryUnit = .pcs,
         status: PantryItemStatus = .unopened,
@@ -130,12 +209,43 @@ struct PantryItem: Codable, Hashable, Identifiable {
     ) {
         self.id = id
         self.name = name
-        self.category = canonicalPantryCategory(category)
+        self.categories = cleanPantryItemCategories(categories ?? [category])
         self.amount = amount
         self.unit = unit
         self.status = status
         self.expiry = expiry
         self.notes = notes
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, category, categories, amount, unit, status, expiry, notes
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        let list = try container.decodeIfPresent([String].self, forKey: .categories) ?? []
+        let single = try container.decodeIfPresent(String.self, forKey: .category) ?? "Other"
+        categories = cleanPantryItemCategories(list.isEmpty ? [single] : list)
+        amount = try container.decodeIfPresent(Double.self, forKey: .amount) ?? 1
+        unit = try container.decodeIfPresent(PantryUnit.self, forKey: .unit) ?? .pcs
+        status = try container.decodeIfPresent(PantryItemStatus.self, forKey: .status) ?? .unopened
+        expiry = try container.decodeIfPresent(String.self, forKey: .expiry)
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(category, forKey: .category)
+        try container.encode(categories, forKey: .categories)
+        try container.encode(amount, forKey: .amount)
+        try container.encode(unit, forKey: .unit)
+        try container.encode(status, forKey: .status)
+        try container.encodeIfPresent(expiry, forKey: .expiry)
+        try container.encode(notes, forKey: .notes)
     }
 }
 
@@ -208,10 +318,14 @@ enum MedicineUnit: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// Like PantryItem, a medicine can sit in several categories and the list
+/// shows it under each.
 struct MedicineItem: Codable, Hashable, Identifiable {
     var id: String
     var name: String
-    var category: String
+    /// Never empty; first is primary. Always set through
+    /// cleanMedicineItemCategories.
+    var categories: [String]
     var amount: Double
     var unit: MedicineUnit
     var status: PantryItemStatus
@@ -220,10 +334,22 @@ struct MedicineItem: Codable, Hashable, Identifiable {
     var purpose: String
     var notes: String
 
+    /// The primary category — what the server also stores as `category`
+    /// for older clients.
+    var category: String {
+        get { categories.first ?? "Other" }
+        set { categories = cleanMedicineItemCategories([newValue]) }
+    }
+
+    func isIn(category name: String) -> Bool {
+        categoryListContains(categories, name)
+    }
+
     init(
         id: String = UUID().uuidString,
         name: String,
         category: String = "Other",
+        categories: [String]? = nil,
         amount: Double = 1,
         unit: MedicineUnit = .pills,
         status: PantryItemStatus = .unopened,
@@ -233,13 +359,46 @@ struct MedicineItem: Codable, Hashable, Identifiable {
     ) {
         self.id = id
         self.name = name
-        self.category = category
+        self.categories = cleanMedicineItemCategories(categories ?? [category])
         self.amount = amount
         self.unit = unit
         self.status = status
         self.expiry = expiry
         self.purpose = purpose
         self.notes = notes
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, category, categories, amount, unit, status, expiry, purpose, notes
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        let list = try container.decodeIfPresent([String].self, forKey: .categories) ?? []
+        let single = try container.decodeIfPresent(String.self, forKey: .category) ?? "Other"
+        categories = cleanMedicineItemCategories(list.isEmpty ? [single] : list)
+        amount = try container.decodeIfPresent(Double.self, forKey: .amount) ?? 1
+        unit = try container.decodeIfPresent(MedicineUnit.self, forKey: .unit) ?? .pills
+        status = try container.decodeIfPresent(PantryItemStatus.self, forKey: .status) ?? .unopened
+        expiry = try container.decodeIfPresent(String.self, forKey: .expiry)
+        purpose = try container.decodeIfPresent(String.self, forKey: .purpose) ?? ""
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(category, forKey: .category)
+        try container.encode(categories, forKey: .categories)
+        try container.encode(amount, forKey: .amount)
+        try container.encode(unit, forKey: .unit)
+        try container.encode(status, forKey: .status)
+        try container.encodeIfPresent(expiry, forKey: .expiry)
+        try container.encode(purpose, forKey: .purpose)
+        try container.encode(notes, forKey: .notes)
     }
 }
 
@@ -502,8 +661,9 @@ struct Recipe: Codable, Identifiable, Hashable {
     /// Relative `/api/recipes/{id}/photo` when this recipe was saved from a
     /// camera/library still. Nil for typed-in and link imports.
     let photoURL: String?
-    /// Lowercased blob used for search so we do not rebuild it on every keystroke.
-    let searchBlob: String
+    /// Precomputed search words (see RecipeSearch.swift) so we do not
+    /// rebuild them on every keystroke.
+    let searchBlob: RecipeSearchBlob
 
     // Equality is field-wise (synthesized) and has to stay that way: it is
     // what RecipeStore's @Observable properties use to decide whether a write
@@ -525,7 +685,7 @@ struct Recipe: Codable, Identifiable, Hashable {
         id: Int, title: String, ingredients: [String], steps: [String],
         source: String, confidence: String, savedAt: String?,
         course: Course, tags: [String], pantry: [String],
-        favorite: Bool, notes: String, photoURL: String?, searchBlob: String
+        favorite: Bool, notes: String, photoURL: String?, searchBlob: RecipeSearchBlob
     ) {
         self.id = id
         self.title = title
@@ -574,7 +734,9 @@ struct Recipe: Codable, Identifiable, Hashable {
         favorite = try container.decodeIfPresent(Bool.self, forKey: .favorite) ?? false
         notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
         photoURL = try container.decodeIfPresent(String.self, forKey: .photoURL)
-        searchBlob = title.lowercased()
+        searchBlob = RecipeSearchBlob(
+            title: title, tags: tags, course: course.rawValue, pantry: pantry, ingredients: ingredients
+        )
     }
 
     func encode(to encoder: Encoder) throws {
@@ -1432,7 +1594,7 @@ private func alphaWords(_ text: String) -> [String] {
     text.split { !$0.isLetter }.map(String.init).filter { !$0.isEmpty }
 }
 
-private func typoAllowance(_ length: Int) -> Int {
+func typoAllowance(_ length: Int) -> Int {
     if length <= 2 { return 0 }
     if length <= 5 { return 1 }
     return 2
@@ -1446,7 +1608,7 @@ private func wordFuzzyMatch(_ word: String, _ needle: String) -> Bool {
     return levenshtein(word, needle) <= allowed
 }
 
-private func levenshtein(_ left: String, _ right: String) -> Int {
+func levenshtein(_ left: String, _ right: String) -> Int {
     if left == right { return 0 }
     let a = Array(left)
     let b = Array(right)

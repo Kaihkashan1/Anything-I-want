@@ -188,7 +188,7 @@ struct PantryView: View {
         return pantry.groupedItems.compactMap { group in
             let rows = group.items.filter {
                 $0.name.lowercased().contains(q)
-                    || group.category.lowercased().contains(q)
+                    || $0.pantryCategories.contains { name in name.lowercased().contains(q) }
             }
             guard !rows.isEmpty else { return nil }
             return (group.category, rows)

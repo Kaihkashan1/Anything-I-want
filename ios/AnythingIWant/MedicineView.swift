@@ -152,7 +152,7 @@ struct MedicineView: View {
             let rows = group.items.filter {
                 $0.name.lowercased().contains(q)
                     || $0.purpose.lowercased().contains(q)
-                    || group.category.lowercased().contains(q)
+                    || $0.categories.contains { name in name.lowercased().contains(q) }
             }
             guard !rows.isEmpty else { return nil }
             return (group.category, rows)
@@ -307,31 +307,40 @@ extension MedicineItem {
     /// Cream text used on solid expiry badges (Organic `#fff8ec`).
     private static let expiryCream = Color(hex: 0xfff8ec)
 
+    /// Medicines always show the full expiry date (day, month and year),
+    /// with the countdown in front when it's soon or past.
     var expiryBadge: ExpiryBadge? {
         guard let expiry, let date = parseExpiryDate(expiry) else { return nil }
         let today = Calendar.current.startOfDay(for: Date())
         let day = Calendar.current.startOfDay(for: date)
         let diff = Calendar.current.dateComponents([.day], from: today, to: day).day ?? 0
+        let formatter = DateFormatter()
+        // en_GB gives "21 Nov 2026" (day first), matching the web app.
+        formatter.locale = Locale(identifier: "en_GB")
+        // parseExpiryDate reads the date at UTC midnight; format it in UTC
+        // too so it never shows the day before.
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.setLocalizedDateFormatFromTemplate("dMMMyyyy")
+        let fullDate = formatter.string(from: date)
         if diff < 0 {
-            return ExpiryBadge(label: L("Expired"), fill: Theme.accent800, foreground: Self.expiryCream, border: nil)
+            let label = L("Expired")
+            return ExpiryBadge(label: "\(label) · \(fullDate)", fill: Theme.accent800, foreground: Self.expiryCream, border: nil)
         }
         if diff <= 3 {
             let label = diff == 0 ? L("Expires today") : L("Expires in \(diff) days")
-            return ExpiryBadge(label: label, fill: Theme.accent500, foreground: Self.expiryCream, border: nil)
+            return ExpiryBadge(label: "\(label) · \(fullDate)", fill: Theme.accent500, foreground: Self.expiryCream, border: nil)
         }
         if diff <= 7 {
+            let label = L("Expires in \(diff) days")
             return ExpiryBadge(
-                label: L("Expires in \(diff) days"),
+                label: "\(label) · \(fullDate)",
                 fill: Theme.sage200,
                 foreground: Theme.sage800,
                 border: nil
             )
         }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en")
-        formatter.setLocalizedDateFormatFromTemplate("MMMd")
         return ExpiryBadge(
-            label: formatter.string(from: date),
+            label: fullDate,
             fill: .clear,
             foreground: Theme.neutral600,
             border: Theme.divider
