@@ -233,6 +233,10 @@ const state = {
   toBuyLoaded: false,
   medicines: [],
   medicineCategories: [],
+  tasks: [],
+  taskLists: [],
+  tasksLoaded: false,
+  taskSegment: "open",
   medicinesLoaded: false,
 };
 
@@ -266,6 +270,12 @@ const els = {
   cupboardView: document.getElementById("cupboard-view"),
   shopView: document.getElementById("shop-view"),
   packView: document.getElementById("pack-view"),
+  tasksView: document.getElementById("tasks-view"),
+  tasksList: document.getElementById("tasks-list"),
+  tasksStatus: document.getElementById("tasks-status"),
+  tasksKicker: document.getElementById("tasks-kicker"),
+  tasksSearch: document.getElementById("tasks-search"),
+  taskSegments: document.getElementById("task-segments"),
   cupboardList: document.getElementById("cupboard-list"),
   cupboardStatus: document.getElementById("cupboard-status"),
   cupboardSearch: document.getElementById("cupboard-search"),
@@ -2188,6 +2198,7 @@ function switchView(view) {
   els.cupboardView.hidden = view !== "cupboard";
   els.shopView.hidden = view !== "shop";
   if (els.packView) els.packView.hidden = view !== "pack";
+  if (els.tasksView) els.tasksView.hidden = view !== "tasks";
   els.searchRow.hidden = view !== "recipes";
   if (view !== "recipes") els.searchSuggest.hidden = true;
   els.viewTabs.querySelectorAll("[data-view]").forEach((btn) => {
@@ -2197,6 +2208,10 @@ function switchView(view) {
     if (!state.pantryInventoryLoaded) loadInventory("cupboard");
     if (!state.medicinesLoaded) loadInventory("medicine");
     renderCupboardChrome();
+  }
+  if (view === "tasks") {
+    if (!state.tasksLoaded) loadTasks();
+    renderTasks();
   }
   if (view === "shop" || view === "pack") {
     if (!state.toBuyLoaded) loadToBuy();
@@ -2649,6 +2664,284 @@ function saveAddOrEditMedicine() {
     notes: document.getElementById("medicine-notes").value.trim(),
   };
   saveInventoryItem("medicine", item);
+}
+
+// ---------- Tasks tab ----------
+// A general to-do list, saved as its own AppState key (see app/store.py's
+// get_tasks/save_tasks) — not a Shop/Pack list, since those merge
+// duplicate ingredients and sort by aisle. Same fetch/PUT-the-whole-list
+// shape as Cupboard/Medicines. Mirrored by ios/AnythingIWant/TasksView.swift.
+const DEFAULT_TASK_LISTS = ["Home", "Errands", "Trip", "Other"];
+
+function taskLists() {
+  return state.taskLists.length ? state.taskLists : DEFAULT_TASK_LISTS;
+}
+
+async function loadTasks() {
+  state.tasksLoaded = true;
+  try {
+    const response = await fetch("/api/tasks", { cache: "no-store" });
+    if (!response.ok) throw await errorForResponse(response);
+    const data = await response.json();
+    state.tasks = Array.isArray(data.items) ? data.items : [];
+    state.taskLists = Array.isArray(data.lists) ? data.lists : [];
+  } catch (err) {
+    state.tasksLoaded = false;
+    els.tasksStatus.textContent = t("couldNotLoad");
+    return;
+  }
+  renderTasks();
+}
+
+// Optimistic like saveInventoryItem: show the change, PUT the whole list,
+// then take whatever the server saved (or roll back on failure).
+async function replaceTasks(next, { closeOnSuccess = false } = {}) {
+  const previous = state.tasks;
+  const previousLists = state.taskLists;
+  state.tasks = next;
+  renderTasks();
+  try {
+    const response = await fetch("/api/tasks", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ items: next, lists: taskLists() }),
+    });
+    if (!response.ok) throw await errorForResponse(response);
+    const data = await response.json();
+    state.tasks = data.items || next;
+    if (data.lists) state.taskLists = data.lists;
+    if (closeOnSuccess) closeDrawer();
+  } catch (err) {
+    state.tasks = previous;
+    state.taskLists = previousLists;
+    window.alert(t("couldntSave", { error: err.message }));
+  }
+  renderTasks();
+}
+
+function daysUntil(isoDate) {
+  const date = new Date(`${isoDate}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((date - today) / 86400000);
+}
+
+function taskDuePillHtml(task) {
+  if (!task.due) return "";
+  const days = daysUntil(task.due);
+  const date = formatShortDate(new Date(`${task.due}T00:00:00`)) || task.due;
+  if (task.done || days === null) return `<span class="pill">${escapeHtml(t("dueOn", { date }))}</span>`;
+  if (days < 0) return `<span class="pill danger">${escapeHtml(`${t("overdue")} · ${date}`)}</span>`;
+  if (days === 0) return `<span class="pill warm">${escapeHtml(`${t("dueToday")} · ${date}`)}</span>`;
+  if (days <= 3) return `<span class="pill warm">${escapeHtml(`${t("dueInDays", { n: days })} · ${date}`)}</span>`;
+  return `<span class="pill">${escapeHtml(t("dueOn", { date }))}</span>`;
+}
+
+// Overdue first, then soonest due, then undated (kept in the order added).
+function compareOpenTasks(a, b) {
+  if (a.due && b.due) return a.due.localeCompare(b.due);
+  if (a.due) return -1;
+  if (b.due) return 1;
+  return 0;
+}
+
+function taskMatches(task, needle) {
+  if (!needle) return true;
+  return [task.title, task.notes, task.list].some((value) => String(value || "").toLowerCase().includes(needle));
+}
+
+function taskRowHtml(task) {
+  const label = task.done ? t("markOpen", { name: task.title }) : t("markDone", { name: task.title });
+  const notes = String(task.notes || "").trim();
+  const due = taskDuePillHtml(task);
+  return `
+    <div class="card to-buy-card${task.done ? " checked" : ""}" data-action="edit-task" data-id="${escapeAttr(task.id)}">
+      <div class="card-actions">
+        <button class="card-icon-btn" type="button" data-action="delete-task" data-id="${escapeAttr(task.id)}" aria-label="${escapeAttr(t("delete"))}">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13"/></svg>
+        </button>
+      </div>
+      <div class="card-body">
+        <div class="to-buy-heading">
+          <button class="to-buy-check${task.done ? " checked" : ""}" type="button" data-action="toggle-task" data-id="${escapeAttr(task.id)}" aria-label="${escapeAttr(label)}"></button>
+          <h2>${escapeHtml(task.title)}</h2>
+        </div>
+        ${notes ? `<span class="inventory-meta">${escapeHtml(notes)}</span>` : ""}
+        ${due ? `<div class="meta">${due}</div>` : ""}
+      </div>
+    </div>`;
+}
+
+function renderTasks() {
+  if (!els.tasksList) return;
+  const openCount = state.tasks.filter((task) => !task.done).length;
+  const doneCount = state.tasks.length - openCount;
+  els.tasksKicker.textContent = t("tasksKicker", { open: openCount, done: doneCount });
+  els.taskSegments?.querySelectorAll("[data-task-segment]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.taskSegment === state.taskSegment);
+  });
+  const needle = (els.tasksSearch?.value || "").trim().toLowerCase();
+  const showDone = state.taskSegment === "done";
+  const rows = state.tasks.filter((task) => task.done === showDone && taskMatches(task, needle));
+  els.tasksStatus.textContent = showDone ? "" : openCount === 1 ? t("tasksCountOne", { n: openCount }) : t("tasksCountOther", { n: openCount });
+  const view = state.viewMode === "list" ? " view-list" : " view-grid";
+  if (!rows.length) {
+    const empty = needle ? t("inventoryNoMatch") : showDone ? t("tasksDoneEmpty") : t("tasksEmpty");
+    els.tasksList.innerHTML = `<div class="empty">${escapeHtml(empty)}</div>`;
+    return;
+  }
+  if (showDone) {
+    const sorted = [...rows].sort((a, b) => String(b.done_at || "").localeCompare(String(a.done_at || "")));
+    els.tasksList.innerHTML = `
+      <div class="pantry-group" style="grid-column:1/-1;">
+        <button class="pill-btn" type="button" data-action="clear-done-tasks">${escapeHtml(t("clearDone"))}</button>
+        <div class="grid${view}" style="margin-top:0.8rem;">${sorted.map(taskRowHtml).join("")}</div>
+      </div>`;
+    return;
+  }
+  const groups = new Map(taskLists().map((name) => [name, []]));
+  for (const task of rows) {
+    if (!groups.has(task.list)) groups.set(task.list, []);
+    groups.get(task.list).push(task);
+  }
+  els.tasksList.innerHTML = [...groups.entries()]
+    .filter(([, list]) => list.length)
+    .map(([name, list]) => `
+      <div class="pantry-group" style="grid-column:1/-1;">
+        <h3 class="pantry-heading">${escapeHtml(name)}</h3>
+        <div class="grid${view}">${[...list].sort(compareOpenTasks).map(taskRowHtml).join("")}</div>
+      </div>`)
+    .join("");
+}
+
+function setTaskSegment(segment) {
+  state.taskSegment = segment === "done" ? "done" : "open";
+  renderTasks();
+}
+
+function toggleTask(id) {
+  replaceTasks(state.tasks.map((task) =>
+    task.id === id
+      ? { ...task, done: !task.done, done_at: task.done ? null : new Date().toISOString() }
+      : task
+  ));
+}
+
+function deleteTask(id) {
+  replaceTasks(state.tasks.filter((task) => task.id !== id));
+}
+
+function clearDoneTasks() {
+  replaceTasks(state.tasks.filter((task) => !task.done));
+}
+
+function openTaskForm(id) {
+  const task = id ? state.tasks.find((item) => item.id === id) : null;
+  if (id && !task) return;
+  state.openRecipeId = null;
+  state.editingId = null;
+  state.addingRecipe = false;
+  if (!state.taskLists.length) state.taskLists = [...DEFAULT_TASK_LISTS];
+  const selected = task?.list || "Other";
+  els.detail.innerHTML = `
+    <div class="drawer-actions">
+      <button class="icon-btn" type="button" data-action="close-drawer">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        ${escapeHtml(t("cancel"))}
+      </button>
+    </div>
+    <div class="recipe recipe-body">
+      <h2 style="margin-bottom:1.2rem;">${escapeHtml(task ? t("editTask") : t("addTask"))}</h2>
+      <input type="hidden" id="task-id" value="${escapeAttr(task?.id || "")}">
+      <label class="field">
+        <span>${escapeHtml(t("taskTitle"))}</span>
+        <input id="task-title" maxlength="200" value="${escapeAttr(task?.title || "")}" placeholder="${escapeAttr(t("taskTitlePlaceholder"))}">
+      </label>
+      <div class="field">
+        <span>${escapeHtml(t("taskList"))}</span>
+        <div id="task-list-chips" class="chips">${taskListChipsHtml(selected)}</div>
+        <div class="tag-add-row">
+          <input id="task-list-new" class="new-list-input" maxlength="40" autocomplete="off" placeholder="${escapeAttr(t("newList"))}">
+          <button class="pill-btn" type="button" data-action="add-task-list">${escapeHtml(t("addList"))}</button>
+        </div>
+      </div>
+      <label class="field">
+        <span>${escapeHtml(t("taskDue"))}</span>
+        <input id="task-due" type="date" value="${escapeAttr(task?.due || "")}">
+      </label>
+      <label class="field">
+        <span>${escapeHtml(t("notes"))}</span>
+        <textarea id="task-notes" class="notes-grow" rows="3">${escapeHtml(task?.notes || "")}</textarea>
+      </label>
+      <button class="pill-btn primary" type="button" data-action="save-task">${escapeHtml(t("save"))}</button>
+    </div>`;
+  els.drawer.hidden = false;
+  els.detail.querySelectorAll(".notes-grow").forEach(autoGrowTextarea);
+  document.getElementById("task-title")?.focus();
+}
+
+function taskListChipsHtml(selected) {
+  return taskLists()
+    .map((name) =>
+      chipButtonHtml({
+        className: "chip",
+        action: "pick-task-list",
+        dataAttr: "list",
+        value: name,
+        active: name.toLowerCase() === String(selected).toLowerCase(),
+        label: name,
+      })
+    )
+    .join("");
+}
+
+function pickTaskList(name) {
+  const chips = document.getElementById("task-list-chips");
+  if (chips) chips.innerHTML = taskListChipsHtml(name);
+}
+
+function selectedTaskList() {
+  return document.querySelector("#task-list-chips .chip.active")?.dataset.list || "Other";
+}
+
+function addTaskListFromDraft() {
+  const input = document.getElementById("task-list-new");
+  const name = String(input?.value || "").trim().replace(/\s+/g, " ").slice(0, 40);
+  if (!name) return;
+  const list = [...taskLists()];
+  let chosen = list.find((existing) => existing.toLowerCase() === name.toLowerCase());
+  if (!chosen) {
+    const other = list.findIndex((existing) => existing.toLowerCase() === "other");
+    if (other >= 0) list.splice(other, 0, name);
+    else list.push(name);
+    state.taskLists = list;
+    chosen = name;
+  }
+  pickTaskList(chosen);
+  input.value = "";
+}
+
+function saveTaskForm() {
+  const title = document.getElementById("task-title").value.trim();
+  if (!title) {
+    document.getElementById("task-title").focus();
+    return;
+  }
+  if (document.getElementById("task-list-new")?.value.trim()) addTaskListFromDraft();
+  const id = document.getElementById("task-id").value;
+  const existing = id ? state.tasks.find((task) => task.id === id) : null;
+  const task = {
+    ...(existing || {}),
+    id: id || `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    title,
+    list: selectedTaskList(),
+    due: document.getElementById("task-due").value || null,
+    notes: document.getElementById("task-notes").value.trim(),
+    done: existing?.done || false,
+  };
+  const next = existing ? state.tasks.map((item) => (item.id === id ? task : item)) : [...state.tasks, task];
+  replaceTasks(next, { closeOnSuccess: true });
 }
 
 // ---------- To buy (Cupboard shopping list) ----------
@@ -3291,6 +3584,11 @@ els.viewTabs.addEventListener("click", (event) => {
 els.cupboardSearch.addEventListener("input", () => renderInventory("cupboard"));
 els.toBuySearch?.addEventListener("input", () => renderToBuy());
 els.packSearch?.addEventListener("input", () => renderToBuy());
+els.tasksSearch?.addEventListener("input", () => renderTasks());
+els.taskSegments?.addEventListener("click", (event) => {
+  const btn = event.target.closest("[data-task-segment]");
+  if (btn) setTaskSegment(btn.dataset.taskSegment);
+});
 els.medicinesSearch.addEventListener("input", () => renderInventory("medicine"));
 els.cupboardSegments?.addEventListener("click", (event) => {
   const btn = event.target.closest("[data-cupboard-segment]");
@@ -3582,6 +3880,32 @@ document.addEventListener("click", (event) => {
     case "save-medicine":
       saveAddOrEditMedicine();
       break;
+    case "open-add-task":
+      openTaskForm(null);
+      break;
+    case "edit-task":
+      openTaskForm(actionEl.dataset.id);
+      break;
+    case "toggle-task":
+      event.stopPropagation();
+      toggleTask(actionEl.dataset.id);
+      break;
+    case "delete-task":
+      event.stopPropagation();
+      deleteTask(actionEl.dataset.id);
+      break;
+    case "clear-done-tasks":
+      clearDoneTasks();
+      break;
+    case "pick-task-list":
+      pickTaskList(actionEl.dataset.list);
+      break;
+    case "add-task-list":
+      addTaskListFromDraft();
+      break;
+    case "save-task":
+      saveTaskForm();
+      break;
     case "toggle-item-category":
       toggleItemCategory(actionEl);
       break;
@@ -3608,6 +3932,14 @@ document.addEventListener("keydown", (event) => {
       return;
     }
     closeDrawer();
+  }
+  if (event.key === "Enter" && event.target?.id === "task-list-new") {
+    event.preventDefault();
+    addTaskListFromDraft();
+  }
+  if (event.key === "Enter" && event.target?.id === "task-title") {
+    event.preventDefault();
+    saveTaskForm();
   }
   if (event.key === "Enter" && event.target?.classList?.contains("new-category-input")) {
     event.preventDefault();

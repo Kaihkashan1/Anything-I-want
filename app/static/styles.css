@@ -762,6 +762,27 @@ button.card-body {
   margin-bottom: 0.9rem;
 }
 
+/* Five tabs on one row on a phone: share the width instead of wrapping. */
+@media (max-width: 520px) {
+  .view-tabs {
+    flex-wrap: nowrap;
+    gap: 0.3rem;
+  }
+  .view-tabs .chip {
+    flex: 1 1 auto;
+    padding: 0.4rem 0.45rem;
+    text-align: center;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 380px) {
+  .view-tabs .chip {
+    font-size: 0.66rem;
+    padding: 0.38rem 0.35rem;
+  }
+}
+
 .view-header {
   display: flex;
   align-items: center;

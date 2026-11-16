@@ -34,11 +34,14 @@ from app.models import (
     PantryUpdate,
     RecipeCreate,
     RecipeUpdate,
+    TasksUpdate,
     ToBuySourceChange,
     ToBuyUpdate,
 )
 from app.pipeline import jobs, process_recipe
 from app.store import (
+    get_tasks,
+    save_tasks,
     add_to_buy_source,
     create_recipe,
     delete_recipe,
@@ -386,6 +389,20 @@ async def api_get_medicines():
 async def api_put_medicines(body: MedicinesUpdate):
     items, categories = save_medicines(body.items, body.categories)
     return {"items": items, "categories": categories}
+
+
+@app.get("/api/tasks", dependencies=[Depends(require_secret)])
+async def api_get_tasks():
+    """The Tasks tab — a general to-do list with a client-editable set of
+    lists that starts from TASK_LISTS."""
+    items, lists = get_tasks()
+    return {"items": items, "lists": lists}
+
+
+@app.put("/api/tasks", dependencies=[Depends(require_secret)])
+async def api_put_tasks(body: TasksUpdate):
+    items, lists = save_tasks(body.items, body.lists)
+    return {"items": items, "lists": lists}
 
 
 @app.get("/api/usage", dependencies=[Depends(require_secret)])

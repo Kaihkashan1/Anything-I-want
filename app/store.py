@@ -584,6 +584,91 @@ def save_medicines(items: list, categories: list | None = None) -> tuple[list[di
     return cleaned, names
 
 
+# Tasks tab — its own AppState key (`tasks`) plus a client-editable list
+# of lists (`task_lists`). Everything lives in the same single AppState
+# cell as the rest, so the size caps below keep one busy list from
+# pushing that cell past Google Sheets' 50,000-character limit.
+TASK_LISTS: tuple[str, ...] = ("Home", "Errands", "Trip", "Other")
+_MAX_TASKS = 400
+_MAX_TASK_TITLE = 200
+_MAX_TASK_NOTES = 1000
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def merge_task_lists(stored, item_lists) -> list[str]:
+    """Saved lists (TASK_LISTS until the user changes them) plus any list a
+    task uses, "Other" last — same rules as merge_medicine_categories."""
+    return merge_medicine_categories(stored if stored else list(TASK_LISTS), item_lists)
+
+
+def _normalize_task(raw: dict, now: str) -> dict | None:
+    title = " ".join(str(raw.get("title") or "").split())[:_MAX_TASK_TITLE]
+    if not title:
+        return None
+    done = bool(raw.get("done"))
+    done_at = str(raw.get("done_at") or "").strip() or None
+    if done and not done_at:
+        done_at = now
+    if not done:
+        done_at = None
+    return {
+        "id": str(raw.get("id") or "").strip() or str(uuid.uuid4()),
+        "title": title,
+        "done": done,
+        "due": _normalize_expiry(raw.get("due")),
+        "list": _normalize_medicine_category_name(raw.get("list")) or "Other",
+        "notes": str(raw.get("notes") or "").strip()[:_MAX_TASK_NOTES],
+        "created_at": str(raw.get("created_at") or "").strip() or now,
+        "done_at": done_at,
+    }
+
+
+def _clean_tasks(raw_items, now: str) -> list[dict]:
+    cleaned: list[dict] = []
+    seen: set[str] = set()
+    for raw in raw_items or []:
+        if hasattr(raw, "model_dump"):
+            raw = raw.model_dump()
+        if not isinstance(raw, dict):
+            continue
+        task = _normalize_task(raw, now)
+        if not task or task["id"] in seen:
+            continue
+        seen.add(task["id"])
+        cleaned.append(task)
+    if len(cleaned) > _MAX_TASKS:
+        # Drop the oldest finished tasks first; open ones are never dropped.
+        done = sorted((t for t in cleaned if t["done"]), key=lambda t: t["done_at"] or "")
+        overflow = {t["id"] for t in done[: len(cleaned) - _MAX_TASKS]}
+        cleaned = [t for t in cleaned if t["id"] not in overflow]
+    return cleaned
+
+
+def get_tasks() -> tuple[list[dict], list[str]]:
+    state = _read_app_state()
+    raw = state.get("tasks")
+    items = _clean_tasks(raw if isinstance(raw, list) else [], _now_iso())
+    stored = state.get("task_lists")
+    lists = merge_task_lists(stored if isinstance(stored, list) else None, [t["list"] for t in items])
+    return items, lists
+
+
+def save_tasks(items: list, lists: list | None = None) -> tuple[list[dict], list[str]]:
+    """`lists` is the client's whole list of lists (it can add, rename and
+    delete them); without one, the saved list is kept."""
+    cleaned = _clean_tasks(items, _now_iso())
+    stored = _read_app_state().get("task_lists")
+    names = merge_task_lists(
+        lists if lists else (stored if isinstance(stored, list) else None),
+        [t["list"] for t in cleaned],
+    )
+    _write_app_state(tasks=cleaned, task_lists=names)
+    return cleaned, names
+
+
 _UNICODE_FRACTIONS = {
     "¼": 0.25,
     "½": 0.5,

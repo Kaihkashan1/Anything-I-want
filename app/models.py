@@ -272,3 +272,23 @@ class FetchedPost(BaseModel):
     image_paths: list[str] = Field(default_factory=list)
     slides: list[FetchedSlide] = Field(default_factory=list)
     media_id: str = ""
+
+
+# Tasks tab — a general to-do list, separate from Shop/Pack (those merge
+# duplicate ingredients and sort by aisle). Lists start as
+# app.store.TASK_LISTS and the client can add more (persisted as
+# `task_lists`), the same way medicine categories work.
+class TaskItem(BaseModel):
+    id: str
+    title: str
+    done: bool = False
+    due: str | None = None  # YYYY-MM-DD, optional
+    list: str = "Other"
+    notes: str = ""
+    created_at: str | None = None  # ISO timestamp, set by the server if missing
+    done_at: str | None = None  # ISO timestamp when ticked, cleared when unticked
+
+
+class TasksUpdate(BaseModel):
+    items: list[TaskItem] = Field(default_factory=list)
+    lists: list[str] | None = None
