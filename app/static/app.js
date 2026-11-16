@@ -1243,8 +1243,262 @@ function titleMatchesQuery(title, query) {
   );
 }
 
+// ---------- semantic recipe search ----------
+// Mirrored in ios/AnythingIWant/RecipeSearch.swift — keep the two in step.
+// A query is split into terms (stopwords dropped, known multi-word phrases
+// kept whole). Every term has to hit the recipe somewhere — title, tags,
+// course, or ingredients — either as typed (typo-tolerant), via a synonym
+// (cilantro ≈ coriander, aubergine ≈ eggplant ≈ brinjal), or via a broader
+// concept ("dessert" finds a brownie, "seafood" finds prawns,
+// "vegetarian" finds recipes with no meat or fish). Hits rank title over
+// tags over ingredients. Ingredients are only searched, never offered as
+// filter chips.
+const SEARCH_STOPWORDS = new Set([
+  "a", "an", "and", "the", "with", "without", "of", "for", "in", "on", "to", "or",
+  "recipe", "recipes", "dish", "dishes", "some", "my", "made", "using", "style",
+]);
+
+// Two-way: any member finds any other.
+const SEARCH_SYNONYMS = [
+  ["coriander", "cilantro", "dhania"],
+  ["eggplant", "aubergine", "brinjal", "baingan"],
+  ["chickpea", "garbanzo", "garbanzo bean", "chana", "chole"],
+  ["zucchini", "courgette"],
+  ["capsicum", "bell pepper"],
+  ["scallion", "spring onion", "green onion"],
+  ["yogurt", "yoghurt", "curd", "dahi"],
+  ["paneer", "cottage cheese"],
+  ["potato", "aloo"],
+  ["cauliflower", "gobi"],
+  ["spinach", "palak"],
+  ["okra", "bhindi", "ladyfinger"],
+  ["lentil", "dal", "dhal", "daal"],
+  ["pea", "matar"],
+  ["shrimp", "prawn"],
+  ["cornstarch", "cornflour"],
+  ["mince", "minced", "ground meat", "keema"],
+  ["chili", "chilli", "chile"],
+  ["arugula", "rocket"],
+  ["beet", "beetroot"],
+  ["confectioners sugar", "powdered sugar", "icing sugar"],
+  ["mutton", "lamb", "goat"],
+  ["noodle", "noodles"],
+];
+
+// One-way: the concept finds its members (searching "cake" doesn't find
+// every dessert).
+const SEARCH_CONCEPTS = {
+  dessert: ["dessert", "sweet", "cake", "cookie", "brownie", "pudding", "ice cream", "pie", "tart", "chocolate", "halwa", "kheer", "muffin", "cheesecake", "mousse", "custard", "cupcake", "tiramisu", "fudge", "ladoo", "barfi"],
+  sweet: ["dessert", "cake", "cookie", "brownie", "pudding", "ice cream", "pie", "tart", "chocolate", "halwa", "kheer", "muffin"],
+  pasta: ["pasta", "spaghetti", "penne", "linguine", "fettuccine", "macaroni", "lasagna", "lasagne", "fusilli", "rigatoni", "orzo", "ravioli", "tortellini", "gnocchi", "tagliatelle", "pappardelle"],
+  noodle: ["ramen", "udon", "soba", "lo mein", "chow mein", "pad thai", "vermicelli", "hakka"],
+  meat: ["meat", "chicken", "beef", "pork", "lamb", "mutton", "turkey", "bacon", "sausage", "keema", "ham", "steak", "veal", "duck", "goat", "chorizo", "pepperoni", "salami", "prosciutto", "pancetta"],
+  poultry: ["chicken", "turkey", "duck"],
+  seafood: ["seafood", "fish", "salmon", "tuna", "cod", "shrimp", "prawn", "crab", "lobster", "mussel", "clam", "squid", "calamari", "scallop", "anchovy", "sardine", "tilapia", "mackerel", "oyster"],
+  fish: ["fish", "salmon", "tuna", "cod", "tilapia", "mackerel", "sardine", "anchovy", "haddock", "trout", "halibut", "sea bass"],
+  spicy: ["spicy", "chili", "chilli", "jalapeno", "sriracha", "cayenne", "gochujang", "harissa", "habanero", "peri peri", "hot sauce", "vindaloo", "szechuan", "sichuan"],
+  breakfast: ["breakfast", "egg", "pancake", "oat", "oatmeal", "waffle", "toast", "granola", "omelette", "omelet", "porridge", "smoothie", "poha", "upma", "paratha", "french toast"],
+  soup: ["soup", "stew", "broth", "ramen", "chowder", "bisque", "rasam", "pho", "minestrone"],
+  bread: ["bread", "naan", "roti", "chapati", "paratha", "focaccia", "loaf", "bun", "bagel", "pita", "brioche", "sourdough", "baguette", "flatbread", "tortilla"],
+  curry: ["curry", "masala", "korma", "tikka", "vindaloo", "dal", "sabzi", "makhani", "rogan josh", "jalfrezi"],
+  cheese: ["cheese", "paneer", "mozzarella", "parmesan", "cheddar", "feta", "ricotta", "halloumi", "gouda", "brie", "mascarpone", "burrata", "pecorino"],
+  drink: ["drink", "smoothie", "lassi", "juice", "cocktail", "mocktail", "latte", "tea", "chai", "coffee", "shake", "lemonade"],
+  snack: ["snack", "chips", "fries", "pakora", "samosa", "nachos", "popcorn", "bites", "fritter", "tikki", "chaat"],
+  salad: ["salad", "slaw", "coleslaw", "raita"],
+  rice: ["rice", "biryani", "pulao", "pilaf", "risotto", "fried rice", "paella", "khichdi"],
+};
+SEARCH_CONCEPTS.desserts = SEARCH_CONCEPTS.dessert;
+SEARCH_CONCEPTS.sweets = SEARCH_CONCEPTS.sweet;
+SEARCH_CONCEPTS.noodles = SEARCH_CONCEPTS.noodle;
+SEARCH_CONCEPTS.hot = SEARCH_CONCEPTS.spicy;
+SEARCH_CONCEPTS.drinks = SEARCH_CONCEPTS.drink;
+SEARCH_CONCEPTS.snacks = SEARCH_CONCEPTS.snack;
+SEARCH_CONCEPTS.soups = SEARCH_CONCEPTS.soup;
+SEARCH_CONCEPTS.curries = SEARCH_CONCEPTS.curry;
+
+// Concepts that describe what's *in* a recipe, so their members are looked
+// for in ingredients too. The rest (dessert, breakfast, soup, …) describe
+// the dish, and only match titles/tags — otherwise every recipe with an
+// egg would count as breakfast.
+const SEARCH_INGREDIENT_CONCEPTS = new Set(["meat", "poultry", "seafood", "fish", "cheese", "pasta", "noodle", "noodles", "spicy", "hot"]);
+
+const SEARCH_DAIRY = ["milk", "cheese", "butter", "cream", "yogurt", "yoghurt", "curd", "ghee", "paneer", "egg", "honey", "mozzarella", "parmesan", "cheddar", "feta", "ricotta", "mascarpone", "buttermilk"];
+// "Without these" concepts: a recipe matches when none of them show up in
+// its title or ingredients (or when it's tagged with the word itself).
+const SEARCH_EXCLUSIONS = {
+  vegetarian: [...SEARCH_CONCEPTS.meat, ...SEARCH_CONCEPTS.seafood],
+  veg: [...SEARCH_CONCEPTS.meat, ...SEARCH_CONCEPTS.seafood],
+  veggie: [...SEARCH_CONCEPTS.meat, ...SEARCH_CONCEPTS.seafood],
+  vegan: [...SEARCH_CONCEPTS.meat, ...SEARCH_CONCEPTS.seafood, ...SEARCH_DAIRY],
+  "plant based": [...SEARCH_CONCEPTS.meat, ...SEARCH_CONCEPTS.seafood, ...SEARCH_DAIRY],
+  pescatarian: SEARCH_CONCEPTS.meat,
+};
+
+function searchFold(text) {
+  return String(text || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
+// Crude English plural folding, applied to both the query and the recipe
+// so they only have to agree with each other: tomatoes/tomato → tomato,
+// cookies/cookie → cooky, berries/berry → berry.
+function searchStem(word) {
+  if (word.length <= 3) return word;
+  let stem = word;
+  if (/(oes|ches|shes|sses|xes)$/.test(stem)) stem = stem.slice(0, -2);
+  else if (stem.endsWith("ies")) stem = stem.slice(0, -1);
+  else if (stem.endsWith("s") && !/(ss|us|is)$/.test(stem)) stem = stem.slice(0, -1);
+  if (stem.length > 4 && stem.endsWith("ie")) stem = `${stem.slice(0, -2)}y`;
+  return stem;
+}
+
+function searchWords(text) {
+  return (searchFold(text).match(/[a-z]+/g) || []).map(searchStem);
+}
+
+// Phrase text as stemmed words joined by single spaces, so "Spring Onions"
+// and "spring onion" compare equal.
+function searchPhrase(text) {
+  return searchWords(text).join(" ");
+}
+
+const SEARCH_SYNONYM_INDEX = (() => {
+  const index = new Map();
+  for (const group of SEARCH_SYNONYMS) {
+    const phrases = group.map(searchPhrase);
+    for (const phrase of phrases) {
+      const existing = index.get(phrase) || [];
+      index.set(phrase, [...new Set([...existing, ...phrases])]);
+    }
+  }
+  return index;
+})();
+
+const SEARCH_CONCEPT_INDEX = new Map(
+  Object.entries(SEARCH_CONCEPTS).map(([key, members]) => [
+    searchPhrase(key),
+    { members: members.map(searchPhrase), inIngredients: SEARCH_INGREDIENT_CONCEPTS.has(key) },
+  ])
+);
+const SEARCH_EXCLUSION_INDEX = new Map(
+  Object.entries(SEARCH_EXCLUSIONS).map(([key, members]) => [searchPhrase(key), members.map(searchPhrase)])
+);
+
+// Longest multi-word keys first, so "spring onion" is taken whole before
+// "onion" alone.
+const SEARCH_MULTIWORD_KEYS = [
+  ...SEARCH_SYNONYM_INDEX.keys(),
+  ...SEARCH_CONCEPT_INDEX.keys(),
+  ...SEARCH_EXCLUSION_INDEX.keys(),
+]
+  .filter((key) => key.includes(" "))
+  .sort((a, b) => b.split(" ").length - a.split(" ").length);
+
+function searchTerms(query) {
+  let words = searchWords(query);
+  const terms = [];
+  // Pull out known phrases first.
+  for (const key of SEARCH_MULTIWORD_KEYS) {
+    const parts = key.split(" ");
+    for (let i = 0; i + parts.length <= words.length; i += 1) {
+      if (parts.every((part, j) => words[i + j] === part)) {
+        terms.push(key);
+        words = [...words.slice(0, i), ...words.slice(i + parts.length)];
+        i -= 1;
+      }
+    }
+  }
+  for (const word of words) {
+    if (!SEARCH_STOPWORDS.has(word)) terms.push(word);
+  }
+  return [...new Set(terms)];
+}
+
+// Per-recipe precomputed search data — rebuilt on load and after edits.
 function computeSearchBlob(recipe) {
-  return String(recipe.title || "").toLowerCase();
+  const title = searchWords(recipe.title);
+  const labels = searchWords([...(recipe.tags || []), recipe.course || ""].join(" "));
+  const ingredients = searchWords([...(recipe.pantry || []), ...(recipe.ingredients || [])].join(" "));
+  return {
+    title,
+    titleText: ` ${title.join(" ")} `,
+    labels,
+    labelsText: ` ${labels.join(" ")} `,
+    ingredients,
+    ingredientsText: ` ${ingredients.join(" ")} `,
+  };
+}
+
+// An exact-ish hit for a synonym/concept phrase: whole words, or a word
+// that starts with it ("chocolate" in "chocolatey").
+function searchPhraseIn(words, text, phrase) {
+  if (phrase.includes(" ")) return text.includes(` ${phrase} `);
+  return words.some((word) => word === phrase || (phrase.length >= 4 && word.startsWith(phrase)));
+}
+
+// The typed word itself also tolerates typos. Ingredient/tag words are
+// matched more strictly than titles, so "pea" doesn't find "speak" and
+// "egg" doesn't find "eggplant".
+function searchTypedIn(words, term, loose) {
+  if (term.includes(" ")) return false;
+  // Short words only typo-match in titles: "rice" ≈ "ice" in an
+  // ingredient list is noise, not a typo.
+  const allowed = loose || term.length >= 5 ? typoAllowance(term.length) : 0;
+  return words.some((word) => {
+    if (word === term) return true;
+    // Half-typed words ("chick" → chicken) — but in ingredients/tags only a
+    // short tail, so "egg" doesn't find eggplant.
+    if (word.startsWith(term) && (loose || word.length - term.length <= 2)) return true;
+    if (loose && term.length >= 3 && word.includes(term)) return true;
+    return allowed > 0
+      && word[0] === term[0]
+      && Math.abs(word.length - term.length) <= allowed
+      && levenshtein(word, term) <= allowed;
+  });
+}
+
+function scoreSearchTerm(blob, term) {
+  const exclusion = SEARCH_EXCLUSION_INDEX.get(term);
+  if (exclusion) {
+    if (searchPhraseIn(blob.labels, blob.labelsText, term)) return 6;
+    const hit = exclusion.some(
+      (phrase) => searchPhraseIn(blob.title, blob.titleText, phrase) || searchPhraseIn(blob.ingredients, blob.ingredientsText, phrase)
+    );
+    return hit ? 0 : 3;
+  }
+  const synonyms = (SEARCH_SYNONYM_INDEX.get(term) || []).filter((phrase) => phrase !== term);
+  const concept = SEARCH_CONCEPT_INDEX.get(term);
+  const conceptMembers = concept ? concept.members.filter((phrase) => phrase !== term) : [];
+  const fields = [
+    { words: blob.title, text: blob.titleText, typed: 10, related: 7, loose: true, concepts: true },
+    { words: blob.labels, text: blob.labelsText, typed: 6, related: 4, loose: false, concepts: true },
+    { words: blob.ingredients, text: blob.ingredientsText, typed: 4, related: 3, loose: false, concepts: Boolean(concept?.inIngredients) },
+  ];
+  let best = 0;
+  for (const field of fields) {
+    if (field.typed > best && (searchPhraseIn(field.words, field.text, term) || searchTypedIn(field.words, term, field.loose))) {
+      best = field.typed;
+    }
+    if (field.related <= best) continue;
+    const related = field.concepts ? [...synonyms, ...conceptMembers] : synonyms;
+    if (related.some((phrase) => searchPhraseIn(field.words, field.text, phrase))) best = field.related;
+  }
+  return best;
+}
+
+// 0 = no match. Every term has to land somewhere; a run-together or
+// typo'd title (the old title-only matcher) still counts.
+function recipeSearchScore(recipe, query) {
+  const blob = recipe.searchBlob || computeSearchBlob(recipe);
+  const titleHit = titleMatchesQuery(recipe.title, query) ? 15 : 0;
+  const terms = searchTerms(query);
+  if (!terms.length) return titleHit;
+  let total = 0;
+  for (const term of terms) {
+    const score = scoreSearchTerm(blob, term);
+    if (!score) return titleHit;
+    total += score;
+  }
+  return total + titleHit;
 }
 
 function filtered() {
@@ -1254,13 +1508,17 @@ function filtered() {
     if (state.favoritesOnly && !recipe.favorite) continue;
     if (state.tags.size && ![...state.tags].every((tag) => (recipe.tags || []).includes(tag))) continue;
     if (state.sourceFilters.size && !state.sourceFilters.has(recipeSourceCategory(recipe))) continue;
-    if (query && !titleMatchesQuery(recipe.title, query)) continue;
-    rows.push({ recipe, match: { score: 0, missing: 0, fullyCovered: false } });
+    const score = query ? recipeSearchScore(recipe, query) : 0;
+    if (query && !score) continue;
+    rows.push({ recipe, match: { score, missing: 0, fullyCovered: false } });
   }
   if (state.sort === "az") {
     rows.sort((a, b) => a.recipe.title.localeCompare(b.recipe.title));
   } else if (state.sort === "za") {
     rows.sort((a, b) => b.recipe.title.localeCompare(a.recipe.title));
+  } else if (query) {
+    // Best match first; Array.prototype.sort is stable, so ties keep newest-first.
+    rows.sort((a, b) => b.match.score - a.match.score);
   }
   return rows;
 }
@@ -2009,31 +2267,47 @@ async function deleteInventoryItem(kind, id) {
   renderInventory(kind);
 }
 
+// Every category an item is filed under — `categories` from the server,
+// falling back to the single legacy `category`.
+function itemCategories(item) {
+  const list = Array.isArray(item.categories) ? item.categories.filter(Boolean) : [];
+  return list.length ? list : [item.category || "Other"];
+}
+
+// An item with several categories shows up under each of them.
 function groupInventoryByCategory(items, categories) {
   const buckets = new Map();
   for (const category of categories) buckets.set(category, []);
   for (const item of items) {
-    const category = item.category || "Other";
-    if (!buckets.has(category)) buckets.set(category, []);
-    buckets.get(category).push(item);
+    for (const category of itemCategories(item)) {
+      if (!buckets.has(category)) buckets.set(category, []);
+      buckets.get(category).push(item);
+    }
   }
   return [...buckets.entries()].filter(([, list]) => list.length);
 }
 
 // Expired/expiring-soon gets called out the same way in both tabs — most
 // useful for medicines, but equally relevant to anything in the cupboard.
-function expiryPillHtml(expiry) {
+// `fullDate` (Medicines) always spells the date out, e.g. "Expired ·
+// 3 Mar 2026" / "Expires in 5d · 21 Nov 2026" / "Expires 21 Nov 2027".
+function expiryPillHtml(expiry, { fullDate = false } = {}) {
   if (!expiry) return "";
-  const days = Math.ceil((new Date(`${expiry}T00:00:00`) - new Date()) / 86400000);
-  if (days < 0) return `<span class="pill danger">${escapeHtml(t("expired"))}</span>`;
-  if (days <= 30) return `<span class="pill warm">${escapeHtml(t("expiresInDays", { n: days }))}</span>`;
-  return `<span class="pill">${escapeHtml(t("expiresOn", { date: expiry }))}</span>`;
+  const date = new Date(`${expiry}T00:00:00`);
+  const days = Math.ceil((date - new Date()) / 86400000);
+  const spelled = Number.isNaN(date.getTime())
+    ? expiry
+    : date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  const withDate = (label) => (fullDate ? `${label} · ${spelled}` : label);
+  if (days < 0) return `<span class="pill danger">${escapeHtml(withDate(t("expired")))}</span>`;
+  if (days <= 30) return `<span class="pill warm">${escapeHtml(withDate(t("expiresInDays", { n: days })))}</span>`;
+  return `<span class="pill">${escapeHtml(t("expiresOn", { date: fullDate ? spelled : expiry }))}</span>`;
 }
 
 function inventorySearchMatch(item, needle) {
   if (!needle) return true;
   if (item.name.toLowerCase().includes(needle)) return true;
-  if ((item.category || "").toLowerCase().includes(needle)) return true;
+  if (itemCategories(item).some((category) => category.toLowerCase().includes(needle))) return true;
   if (item.purpose && item.purpose.toLowerCase().includes(needle)) return true;
   return false;
 }
@@ -2094,7 +2368,7 @@ function medicineMetaHtml(item) {
     <span class="inventory-meta">${escapeHtml(String(item.amount))} ${escapeHtml(item.unit)} · ${escapeHtml(t(item.status))}</span>
     ${item.purpose ? `<span class="inventory-meta">${escapeHtml(item.purpose)}</span>` : ""}
     ${item.notes ? `<span class="inventory-meta">${escapeHtml(item.notes)}</span>` : ""}
-    <div class="meta">${expiryPillHtml(item.expiry)}</div>`;
+    <div class="meta">${expiryPillHtml(item.expiry, { fullDate: true })}</div>`;
 }
 
 // Grows a textarea to fit its content instead of scrolling inside a fixed
@@ -2113,18 +2387,66 @@ document.addEventListener("input", (event) => {
   if (field.dataset.action === "to-buy-notes") setToBuyNotes(field.dataset.id, field.value);
 });
 
-document.addEventListener("change", (event) => {
-  if (event.target?.id === "medicine-category") syncMedicineNewCategoryField();
-});
+// ---------- multi-select category chips (Cupboard + Medicines forms) ----------
+// The picked set lives in the chips' .active state; "Other" is only the
+// fallback, so picking a real category drops it and clearing the last real
+// one brings it back (same rule as app/store.py's _dedupe_casefold).
+function categoryChipsHtml(categories, selected) {
+  const picked = new Set(selected.map((name) => name.toLowerCase()));
+  return categories
+    .map((category) =>
+      chipButtonHtml({
+        className: "chip",
+        action: "toggle-item-category",
+        dataAttr: "category",
+        value: category,
+        active: picked.has(category.toLowerCase()),
+        label: category,
+      })
+    )
+    .join("");
+}
 
-function syncMedicineNewCategoryField() {
-  const select = document.getElementById("medicine-category");
-  const wrap = document.getElementById("medicine-category-new-wrap");
+function selectedCategoryChips(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return ["Other"];
+  const picked = [...container.querySelectorAll(".chip.active[data-category]")].map((chip) => chip.dataset.category);
+  return picked.length ? picked : ["Other"];
+}
+
+function setCategoryChipActive(container, name, active) {
+  const chip = [...container.querySelectorAll("[data-category]")].find(
+    (el) => el.dataset.category.toLowerCase() === name.toLowerCase()
+  );
+  if (chip) chip.classList.toggle("active", active);
+  return chip;
+}
+
+function toggleItemCategory(chip) {
+  const container = chip.closest(".chips");
+  if (!container) return;
+  const isOther = chip.dataset.category.toLowerCase() === "other";
+  const turningOn = !chip.classList.contains("active");
+  if (isOther && turningOn) {
+    container.querySelectorAll(".chip.active").forEach((el) => el.classList.remove("active"));
+  }
+  chip.classList.toggle("active", turningOn);
+  if (!isOther && turningOn) setCategoryChipActive(container, "Other", false);
+  if (!container.querySelector(".chip.active")) setCategoryChipActive(container, "Other", true);
+}
+
+// "+ New category" on the medicine form: adds the typed name to the list
+// and selects it.
+function addMedicineCategoryFromDraft() {
   const input = document.getElementById("medicine-category-new");
-  if (!select || !wrap) return;
-  const isNew = select.value === "__new__";
-  wrap.hidden = !isNew;
-  if (isNew) input?.focus();
+  const container = document.getElementById("medicine-category-chips");
+  if (!input || !container) return;
+  const picked = selectedCategoryChips("medicine-category-chips");
+  const name = addMedicineCategoryName(input.value);
+  if (!name) return;
+  const next = [...picked.filter((value) => value.toLowerCase() !== "other"), name];
+  container.innerHTML = categoryChipsHtml(state.medicineCategories, next);
+  input.value = "";
 }
 
 function addMedicineCategoryName(raw) {
@@ -2171,16 +2493,10 @@ function statusOptionsHtml(statuses, selected) {
   return statuses.map((status) => `<option value="${escapeAttr(status)}"${status === selected ? " selected" : ""}>${escapeHtml(t(status))}</option>`).join("");
 }
 
-function categoryOptionsHtml(categories, selected) {
-  return categories
-    .map((category) => `<option value="${escapeAttr(category)}"${category === selected ? " selected" : ""}>${escapeHtml(category)}</option>`)
-    .join("");
-}
-
 function pantryItemFormHtml(item) {
   const config = INVENTORY_KINDS.cupboard;
   const categories = state.pantryInventoryCategories.length ? state.pantryInventoryCategories : DEFAULT_PANTRY_CATEGORIES;
-  const category = item?.category && categories.includes(item.category) ? item.category : categories[0];
+  const selected = item ? itemCategories(item) : ["Other"];
   return `
     <div class="drawer-actions">
       <button class="icon-btn" type="button" data-action="close-drawer">
@@ -2195,10 +2511,10 @@ function pantryItemFormHtml(item) {
         <span>${escapeHtml(t("name"))}</span>
         <input id="pantry-item-name" value="${escapeAttr(item?.name || "")}">
       </label>
-      <label class="field">
-        <span>${escapeHtml(t("category"))}</span>
-        <select id="pantry-item-category">${categoryOptionsHtml(categories, category)}</select>
-      </label>
+      <div class="field">
+        <span>${escapeHtml(t("categories"))}</span>
+        <div id="pantry-item-category-chips" class="chips">${categoryChipsHtml(categories, selected)}</div>
+      </div>
       <label class="field">
         <span>${escapeHtml(t("amount"))}</span>
         <input id="pantry-item-amount" type="number" min="0" step="any" value="${escapeAttr(item?.amount ?? 1)}">
@@ -2223,13 +2539,18 @@ function pantryItemFormHtml(item) {
     </div>`;
 }
 
+// `category` stays the first pick for older clients (see app/models.py).
+function categoryFields(categories) {
+  return { category: categories[0] || "Other", categories };
+}
+
 function saveAddOrEditPantryItem() {
   const name = document.getElementById("pantry-item-name").value.trim();
   if (!name) return;
   const item = {
     id: document.getElementById("pantry-item-id").value || `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     name,
-    category: document.getElementById("pantry-item-category").value || "Other",
+    ...categoryFields(selectedCategoryChips("pantry-item-category-chips")),
     amount: Number(document.getElementById("pantry-item-amount").value) || 1,
     unit: document.getElementById("pantry-item-unit").value,
     status: document.getElementById("pantry-item-status").value,
@@ -2241,8 +2562,9 @@ function saveAddOrEditPantryItem() {
 
 function medicineFormHtml(item) {
   const config = INVENTORY_KINDS.medicine;
-  const categories = state.medicineCategories.length ? state.medicineCategories : DEFAULT_MEDICINE_CATEGORIES;
-  const category = item?.category && categories.includes(item.category) ? item.category : categories[0];
+  if (!state.medicineCategories.length) state.medicineCategories = [...DEFAULT_MEDICINE_CATEGORIES];
+  const categories = state.medicineCategories;
+  const selected = item ? itemCategories(item) : ["Other"];
   return `
     <div class="drawer-actions">
       <button class="icon-btn" type="button" data-action="close-drawer">
@@ -2257,14 +2579,14 @@ function medicineFormHtml(item) {
         <span>${escapeHtml(t("name"))}</span>
         <input id="medicine-name" value="${escapeAttr(item?.name || "")}" placeholder="${escapeAttr(t("medicineNamePlaceholder"))}">
       </label>
-      <label class="field">
-        <span>${escapeHtml(t("category"))}</span>
-        <select id="medicine-category">${categoryOptionsHtml(categories, category)}<option value="__new__">${escapeHtml(t("addCategory"))}</option></select>
-      </label>
-      <label class="field" id="medicine-category-new-wrap" hidden>
-        <span>${escapeHtml(t("newCategory"))}</span>
-        <input id="medicine-category-new" placeholder="${escapeAttr(t("newCategory"))}">
-      </label>
+      <div class="field">
+        <span>${escapeHtml(t("categories"))}</span>
+        <div id="medicine-category-chips" class="chips">${categoryChipsHtml(categories, selected)}</div>
+        <div class="tag-add-row">
+          <input id="medicine-category-new" maxlength="40" autocomplete="off" placeholder="${escapeAttr(t("newCategory"))}">
+          <button class="pill-btn" type="button" data-action="add-medicine-category">${escapeHtml(t("addCategory"))}</button>
+        </div>
+      </div>
       <label class="field">
         <span>${escapeHtml(t("amount"))}</span>
         <input id="medicine-amount" type="number" min="0" step="any" value="${escapeAttr(item?.amount ?? 1)}">
@@ -2296,15 +2618,12 @@ function medicineFormHtml(item) {
 function saveAddOrEditMedicine() {
   const name = document.getElementById("medicine-name").value.trim();
   if (!name) return;
-  const selected = document.getElementById("medicine-category").value;
-  const category = selected === "__new__"
-    ? addMedicineCategoryName(document.getElementById("medicine-category-new")?.value)
-    : selected;
-  if (!category) return;
+  // A name typed into "New category" but not yet added still counts.
+  if (document.getElementById("medicine-category-new")?.value.trim()) addMedicineCategoryFromDraft();
   const item = {
     id: document.getElementById("medicine-id").value || `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     name,
-    category,
+    ...categoryFields(selectedCategoryChips("medicine-category-chips")),
     amount: Number(document.getElementById("medicine-amount").value) || 1,
     unit: document.getElementById("medicine-unit").value,
     status: document.getElementById("medicine-status").value,
@@ -3244,6 +3563,12 @@ document.addEventListener("click", (event) => {
     case "save-medicine":
       saveAddOrEditMedicine();
       break;
+    case "toggle-item-category":
+      toggleItemCategory(actionEl);
+      break;
+    case "add-medicine-category":
+      addMedicineCategoryFromDraft();
+      break;
     default:
       break;
   }
@@ -3264,6 +3589,10 @@ document.addEventListener("keydown", (event) => {
       return;
     }
     closeDrawer();
+  }
+  if (event.key === "Enter" && event.target?.id === "medicine-category-new") {
+    event.preventDefault();
+    addMedicineCategoryFromDraft();
   }
   if (event.key === "Enter" && event.target && (event.target.id === "add-tag-draft" || event.target.id === "edit-tag-draft")) {
     event.preventDefault();

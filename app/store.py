@@ -291,12 +291,46 @@ def _category_for_item(name: str, raw_category) -> str:
     return pantry_category(canonical_ingredient(name))
 
 
+def _raw_categories(raw: dict) -> list:
+    """An item's category list as sent: `categories` when it's a non-empty
+    list, else the single legacy `category`."""
+    listed = raw.get("categories")
+    if isinstance(listed, list):
+        listed = [value for value in listed if str(value or "").strip()]
+        if listed:
+            return listed
+    return [raw.get("category")]
+
+
+def _dedupe_casefold(names: list[str]) -> list[str]:
+    """Case-insensitive de-dupe, keeping order. "Other" is only the fallback,
+    so it's dropped once the item has any real category."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for name in names:
+        key = name.casefold()
+        if key not in seen:
+            seen.add(key)
+            out.append(name)
+    real = [name for name in out if name.casefold() != "other"]
+    return real or out
+
+
+def _pantry_categories_for_item(name: str, raw: dict) -> list[str]:
+    """Aisles from the item's list that are real aisles; if none survive, the
+    single aisle classified from the name (see _category_for_item)."""
+    aisles = _dedupe_casefold(
+        [aisle for aisle in (_aisle_category(value) for value in _raw_categories(raw)) if aisle]
+    )
+    return aisles or [_category_for_item(name, None)]
+
+
 def _normalize_pantry_item(raw: dict) -> dict | None:
     name = str(raw.get("name") or "").strip()
     if not name:
         return None
     item_id = str(raw.get("id") or "").strip() or str(uuid.uuid4())
-    category = _category_for_item(name, raw.get("category"))
+    categories = _pantry_categories_for_item(name, raw)
     unit = str(raw.get("unit") or "pcs").strip().lower()
     if unit not in ("pcs", "g", "kg"):
         unit = "pcs"
@@ -313,7 +347,8 @@ def _normalize_pantry_item(raw: dict) -> dict | None:
     return {
         "id": item_id,
         "name": name,
-        "category": category,
+        "category": categories[0],
+        "categories": categories,
         "amount": amount,
         "unit": unit,
         "status": status,
@@ -443,12 +478,15 @@ def _normalize_medicine_item(raw: dict, allowed: list[str] | None = None) -> dic
     if amount <= 0:
         amount = 1.0
     names = allowed if allowed else list(MEDICINE_CATEGORIES)
-    category = _medicine_category(raw.get("category"), names)
+    categories = _dedupe_casefold(
+        [_medicine_category(value, names) for value in _raw_categories(raw)]
+    )
     expiry = _normalize_expiry(raw.get("expiry"))
     return {
         "id": item_id,
         "name": name,
-        "category": category,
+        "category": categories[0],
+        "categories": categories,
         "amount": amount,
         "unit": unit,
         "status": status,
@@ -460,7 +498,7 @@ def _normalize_medicine_item(raw: dict, allowed: list[str] | None = None) -> dic
 
 def _medicine_state_categories(state: dict, raw_items: list) -> list[str]:
     item_cats = [
-        raw.get("category") for raw in raw_items if isinstance(raw, dict)
+        value for raw in raw_items if isinstance(raw, dict) for value in _raw_categories(raw)
     ]
     return merge_medicine_categories(state.get("medicine_categories"), item_cats)
 
@@ -499,7 +537,7 @@ def save_medicines(items: list, categories: list | None = None) -> tuple[list[di
         if not isinstance(raw, dict):
             continue
         incoming.append(raw)
-        incoming_cats.append(raw.get("category"))
+        incoming_cats.extend(_raw_categories(raw))
     names = merge_medicine_categories(
         categories if categories else stored,
         incoming_cats,
@@ -512,7 +550,9 @@ def save_medicines(items: list, categories: list | None = None) -> tuple[list[di
             continue
         seen_ids.add(item["id"])
         cleaned.append(item)
-    names = merge_medicine_categories(names, [item["category"] for item in cleaned])
+    names = merge_medicine_categories(
+        names, [value for item in cleaned for value in item["categories"]]
+    )
     _write_app_state(medicines=cleaned, medicine_categories=names)
     return cleaned, names
 

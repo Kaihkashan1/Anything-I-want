@@ -169,6 +169,9 @@ class PantryItem(BaseModel):
     id: str
     name: str
     category: str = "Other"
+    # Every category the item is filed under; `category` is always the first
+    # one (kept for older clients that only know a single category).
+    categories: list[str] = Field(default_factory=list)
     amount: float = 1
     unit: PantryUnit = "pcs"
     status: PantryStatus = "unopened"
@@ -230,6 +233,7 @@ class MedicineItem(BaseModel):
     id: str
     name: str
     category: str = "Other"
+    categories: list[str] = Field(default_factory=list)  # see PantryItem
     amount: float = 1
     unit: MedicineUnit = "pills"
     status: PantryStatus = "unopened"
