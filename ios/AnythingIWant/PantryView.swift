@@ -675,7 +675,7 @@ struct MedicineCategoriesSheet: View {
     }
 }
 
-private struct CategoryRenameRow: View {
+struct CategoryRenameRow: View {
     let name: String
     let locked: Bool
     var onRename: (String) -> Void

@@ -11,6 +11,7 @@ struct AnythingIWantApp: App {
     @State private var store = RecipeStore()
     @State private var pantryStore = PantryStore()
     @State private var medicineStore = MedicineStore()
+    @State private var taskStore = TaskStore()
     @State private var connectivity = Connectivity()
 
     init() {
@@ -23,6 +24,7 @@ struct AnythingIWantApp: App {
                 .environment(store)
                 .environment(pantryStore)
                 .environment(medicineStore)
+                .environment(taskStore)
                 .environment(connectivity)
                 .environment(\.locale, Locale(identifier: "en"))
                 .onOpenURL { url in

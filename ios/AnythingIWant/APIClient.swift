@@ -397,6 +397,40 @@ struct APIClient {
         return try Self.decoder.decode(MedicinesResponse.self, from: data)
     }
 
+    func fetchTasks(secret: String) async throws -> TasksResponse {
+        try await decodeJSON(TasksResponse.self, from: get("/api/tasks", secret: secret))
+    }
+
+    func updateTasks(items: [TaskItem], lists: [String]? = nil, secret: String) async throws -> TasksResponse {
+        guard let base = URL(string: trimmedBase),
+              let url = URL(string: "/api/tasks", relativeTo: base)
+        else { throw APIError.badURL }
+
+        var request = URLRequest(url: url.absoluteURL)
+        request.httpMethod = "PUT"
+        request.timeoutInterval = 15
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let trimmedSecret = secret.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedSecret.isEmpty {
+            request.setValue(trimmedSecret, forHTTPHeaderField: "X-Anything-I-Want-Key")
+        }
+        request.httpBody = try JSONEncoder().encode(TasksResponse(items: items, lists: lists))
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await Self.session.data(for: request)
+        } catch {
+            throw APIError.unreachable(trimmedBase)
+        }
+
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200 ..< 300).contains(status) else {
+            try throwForStatus(status, data: data)
+        }
+        return try Self.decoder.decode(TasksResponse.self, from: data)
+    }
+
     func fetchToBuy(secret: String) async throws -> [ToBuyItem] {
         try await decodeJSON(ToBuyResponse.self, from: get("/api/to-buy", secret: secret)).items
     }

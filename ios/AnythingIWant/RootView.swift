@@ -35,12 +35,14 @@ private enum AppTab: Hashable {
     case pantry
     case shop
     case pack
+    case tasks
 }
 
 struct RootView: View {
     @Environment(RecipeStore.self) private var store
     @Environment(PantryStore.self) private var pantryStore
     @Environment(MedicineStore.self) private var medicineStore
+    @Environment(TaskStore.self) private var taskStore
     @Environment(Connectivity.self) private var connectivity
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab: AppTab = .recipes
@@ -86,6 +88,12 @@ struct RootView: View {
                     Label("Pack", systemImage: "suitcase")
                 }
                 .tag(AppTab.pack)
+
+            tasksTab
+                .tabItem {
+                    Label("Tasks", systemImage: "checklist")
+                }
+                .tag(AppTab.tasks)
         }
         .tint(Theme.accent)
         .toolbarBackground(Theme.surface, for: .tabBar)
@@ -219,6 +227,7 @@ struct RootView: View {
 
     private var refreshErrorMessage: String? {
         store.lastRefreshError ?? pantryStore.lastRefreshError ?? medicineStore.lastRefreshError
+            ?? taskStore.lastRefreshError
     }
 
     private func scheduleExpiryReminders() {
@@ -369,7 +378,8 @@ struct RootView: View {
         async let recipes = store.refresh(force: force, auto: true)
         async let pantry = pantryStore.refresh(force: force, auto: true)
         async let meds = medicineStore.refresh(force: force, auto: true)
-        _ = await (recipes, pantry, meds)
+        async let todo = taskStore.refresh(force: force, auto: true)
+        _ = await (recipes, pantry, meds, todo)
     }
 
     private var recipesTab: some View {
@@ -406,6 +416,12 @@ struct RootView: View {
     private var packTab: some View {
         NavigationStack {
             ShopView(mode: .pack)
+        }
+    }
+
+    private var tasksTab: some View {
+        NavigationStack {
+            TasksView()
         }
     }
 
