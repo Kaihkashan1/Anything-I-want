@@ -2944,6 +2944,138 @@ function saveTaskForm() {
   replaceTasks(next, { closeOnSuccess: true });
 }
 
+// ---------- Export a list as plain text ----------
+// The share button on Cupboard, Shop, Pack and Tasks turns whatever list
+// is showing into a tidy text checklist: the phone's share sheet where the
+// browser has one, otherwise copied to the clipboard. Mirrored by
+// ios/AnythingIWant/ListExport.swift — keep the wording in step.
+function exportLine(bullet, name, details) {
+  const extra = details.filter(Boolean).join(" · ");
+  return `${bullet} ${name}${extra ? ` — ${extra}` : ""}`;
+}
+
+function exportGroups(groups) {
+  return groups
+    .filter(([, lines]) => lines.length)
+    .map(([heading, lines]) => (heading ? `${heading.toUpperCase()}\n${lines.join("\n")}` : lines.join("\n")))
+    .join("\n\n");
+}
+
+function exportHeader(title) {
+  return `${title}\n${formatShortDate(new Date())}`;
+}
+
+function amountText(item) {
+  const amount = Number(item.amount);
+  const shown = Number.isInteger(amount) ? String(amount) : String(amount || "");
+  return `${shown} ${item.unit || ""}`.trim();
+}
+
+// One line per item, under its first category only (the app shows a
+// multi-category item under each, but a shared list shouldn't repeat it).
+function inventoryExportText(kind) {
+  const config = INVENTORY_KINDS[kind];
+  const items = state[config.itemsKey];
+  if (!items.length) return null;
+  const buckets = new Map(state[config.categoriesKey].map((name) => [name, []]));
+  for (const item of [...items].sort((a, b) => a.name.localeCompare(b.name))) {
+    const category = itemCategories(item)[0];
+    if (!buckets.has(category)) buckets.set(category, []);
+    const expiry = item.expiry ? `${t("exportExpires")} ${formatShortDate(new Date(`${item.expiry}T00:00:00`)) || item.expiry}` : "";
+    buckets.get(category).push(exportLine("•", item.name, [
+      `${amountText(item)}, ${t(item.status).toLowerCase()}`,
+      expiry,
+      kind === "medicine" ? item.purpose : "",
+      item.notes,
+    ]));
+  }
+  const title = kind === "medicine" ? t("medicinesTab") : `${t("cupboardTitle")} · ${t("groceries")}`;
+  return `${exportHeader(title)}\n\n${exportGroups([...buckets.entries()])}`;
+}
+
+// Only what's still to get — ticked items are left out.
+function checklistExportText() {
+  const key = currentChecklistKey();
+  const open = itemsForShopSegment(key).filter((item) => !item.checked);
+  if (!open.length) return null;
+  const pack = key === "take_to_india" || key === "bring_to_germany";
+  const line = (item) => exportLine("☐", item.text, [pack ? "" : item.qty, String(item.notes || "").trim()]);
+  const titles = {
+    shop: `${t("shopTitle")} · ${t("groceries")}`,
+    shop_medicines: `${t("shopTitle")} · ${t("medicinesTab")}`,
+    take_to_india: t("takeToIndia"),
+    bring_to_germany: t("bringToGermany"),
+  };
+  const body = pack
+    ? [...open].sort((a, b) => a.text.localeCompare(b.text)).map(line).join("\n")
+    : exportGroups(groupedToBuy(open).map(([category, items]) => [category, items.map(line)]));
+  return `${exportHeader(titles[key] || t("shopTitle"))}\n\n${body}`;
+}
+
+function tasksExportText() {
+  const open = state.tasks.filter((task) => !task.done);
+  if (!open.length) return null;
+  const groups = new Map(taskLists().map((name) => [name, []]));
+  for (const task of [...open].sort(compareOpenTasks)) {
+    if (!groups.has(task.list)) groups.set(task.list, []);
+    let due = "";
+    if (task.due) {
+      const date = formatShortDate(new Date(`${task.due}T00:00:00`)) || task.due;
+      due = daysUntil(task.due) < 0 ? `${t("overdue")} ${date}` : `${t("exportDue")} ${date}`;
+    }
+    groups.get(task.list).push(exportLine("☐", task.title, [due, String(task.notes || "").trim()]));
+  }
+  return `${exportHeader(t("tasksTitle"))}\n\n${exportGroups([...groups.entries()])}`;
+}
+
+function currentExportText() {
+  if (state.view === "cupboard") return inventoryExportText(state.cupboardSegment === "medicines" ? "medicine" : "cupboard");
+  if (state.view === "shop" || state.view === "pack") return checklistExportText();
+  if (state.view === "tasks") return tasksExportText();
+  return null;
+}
+
+let exportNoticeTimer = null;
+function showExportNotice(message) {
+  let notice = document.getElementById("export-notice");
+  if (!notice) {
+    notice = document.createElement("div");
+    notice.id = "export-notice";
+    notice.className = "export-notice";
+    notice.setAttribute("role", "status");
+    document.body.append(notice);
+  }
+  notice.textContent = message;
+  notice.hidden = false;
+  clearTimeout(exportNoticeTimer);
+  exportNoticeTimer = setTimeout(() => { notice.hidden = true; }, 2200);
+}
+
+async function shareCurrentList() {
+  const text = currentExportText();
+  if (!text) {
+    showExportNotice(t("exportNothing"));
+    return;
+  }
+  // The share sheet only on touch devices: desktop browsers that support
+  // navigator.share open a clunky system dialog where copying is handier.
+  const touch = window.matchMedia?.("(pointer: coarse)").matches;
+  if (touch && navigator.share) {
+    try {
+      await navigator.share({ text });
+      return;
+    } catch (err) {
+      if (err?.name === "AbortError") return;
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    showExportNotice(t("exportCopied"));
+  } catch {
+    window.prompt(t("exportCopyPrompt"), text);
+  }
+}
+
 // ---------- To buy (Cupboard shopping list) ----------
 // Same AppState list the iPhone reads. Web is the fallback while a
 // Personal Team install is expired / being reinstalled.
@@ -3870,6 +4002,9 @@ document.addEventListener("click", (event) => {
       break;
     case "save-medicine":
       saveAddOrEditMedicine();
+      break;
+    case "share-list":
+      shareCurrentList();
       break;
     case "open-add-task":
       openTaskForm(null);

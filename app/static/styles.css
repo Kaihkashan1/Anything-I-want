@@ -1453,3 +1453,21 @@ body.locked .photo-lightbox { display: none !important; }
   width: 100%;
   margin-top: 0.4rem;
 }
+
+/* "List copied" confirmation after sharing a list on desktop. */
+.export-notice {
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  transform: translateX(-50%);
+  background: var(--ink);
+  color: var(--bg);
+  font-family: "Figtree", sans-serif;
+  font-size: 0.85rem;
+  padding: 0.6rem 1rem;
+  border-radius: 999px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  z-index: 60;
+  max-width: calc(100vw - 32px);
+}
+.export-notice[hidden] { display: none; }
