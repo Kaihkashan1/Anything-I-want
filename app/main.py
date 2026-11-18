@@ -40,6 +40,7 @@ from app.models import (
 )
 from app.pipeline import jobs, process_recipe
 from app.store import (
+    photos_not_in_database,
     recipe_photo,
     app_state_backend,
     get_tasks,
@@ -132,8 +133,16 @@ async def favicon():
 @app.get("/health")
 async def health():
     # "storage" says where recipes and lists live: "upstash" once the
-    # database is connected, otherwise "google-sheet".
-    return {"ok": True, "storage": app_state_backend()}
+    # database is connected, otherwise "google-sheet". With the database,
+    # "photos_still_outside_database" counts old photos not yet copied in
+    # (each is copied the first time its recipe's photo is opened).
+    body = {"ok": True, "storage": app_state_backend()}
+    if body["storage"] == "upstash":
+        try:
+            body["photos_still_outside_database"] = photos_not_in_database()
+        except Exception:
+            logger.warning("Could not count photos outside the database", exc_info=True)
+    return body
 
 
 @app.post("/api/session", dependencies=[Depends(require_secret)])

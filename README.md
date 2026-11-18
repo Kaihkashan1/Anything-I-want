@@ -1,11 +1,11 @@
 # Anything I want
 
-Share a recipe reel, video, or blog link from your iPhone. The hosted backend fetches it, asks Gemini to extract the recipe, and appends a row to a Google Sheet. Browse and cook in the personal iPhone app (**Anything I want** — Cookbook + Cupboard tabs), at the Vercel URL, or in the Sheets app.
+Share a recipe reel, video, or blog link from your iPhone. The hosted backend fetches it, asks Gemini to extract the recipe, and saves it. Browse, cook and manage your Cupboard, Shop, Pack and Tasks in the personal iPhone app (**Anything I want**) or at the Vercel URL.
 
-This is the free-tier MVP: Google Sheets storage, Vercel in production (optional local Mac for development). Production: `https://anything-i-want.vercel.app/`. Local: `http://127.0.0.1:8000/`. iPhone app: [`ios/`](ios/).
+This is a free-tier setup: a free Upstash Redis database for recipes, photos and lists, Vercel in production (optional local Mac for development). Older installs kept everything in a Google Sheet; that still works without the database, and the database copies it across once (see section 9). Production: `https://anything-i-want.vercel.app/`. Local: `http://127.0.0.1:8000/`. iPhone app: [`ios/`](ios/).
 
 ```
-iPhone Share → POST /ingest → Apify (Instagram) / yt-dlp (YouTube, TikTok, ...) / plain page fetch (everything else) → Gemini → Google Sheets
+iPhone Share → POST /ingest → Apify (Instagram) / yt-dlp (YouTube, TikTok, ...) / plain page fetch (everything else) → Gemini → Upstash database
 ```
 
 ## 1. Install the app
@@ -37,9 +37,11 @@ Rate limits live at [aistudio.google.com/rate-limit](https://aistudio.google.com
 
 If the primary model (`gemini-3.6-flash`) is busy or hits its own daily cap, the app retries once on `gemini-3.5-flash-lite` with the same API key. Override the fallback with `GEMINI_FALLBACK_MODEL` if needed. Combined free-tier capacity is treated as about 520 requests/day (20 + 500); Settings shows today's Gemini call count against that same number.
 
-## 3. Google Sheet + service account (free)
+## 3. Google Sheet + service account (optional)
 
-The backend writes as a bot, so it needs a Google Cloud *service account* that you’ve shared the Sheet with.
+**New setup? Skip this section** and connect the database in section 9 instead — with it, the app needs no Google Sheet at all.
+
+This section is for running without the database, or for an existing Sheet whose recipes the database should copy in. The backend writes as a bot, so it needs a Google Cloud *service account* that you’ve shared the Sheet with.
 
 ### Create the spreadsheet
 
@@ -156,7 +158,7 @@ curl -X POST http://127.0.0.1:8000/ingest \
   -d '{"content":"https://www.instagram.com/reel/PASTE_A_REEL_ID/"}'
 ```
 
-Then `curl http://127.0.0.1:8000/jobs -H "X-Anything-I-Want-Key: change-me"` and refresh the Sheet.
+Then `curl http://127.0.0.1:8000/jobs -H "X-Anything-I-Want-Key: change-me"` and refresh the app.
 
 ### Where errors actually show up
 
@@ -210,8 +212,10 @@ Google Sheets only allows about 60 reads a minute, and the apps refresh several 
 
 1. In the Vercel project, open **Storage → Create Database** (or **Browse Marketplace**), pick **Upstash** → **Redis**, choose the free plan and any region close to you (Frankfurt for Germany), and create it. Leave the environment-variable prefix empty.
 2. When asked, connect it to this project for all environments. Vercel adds `KV_REST_API_URL` and `KV_REST_API_TOKEN` to the env vars by itself.
-3. Redeploy. The first requests copy your recipes (keeping their ids), the import log and the **AppState** tab from the Sheet into the database; each existing photo is copied from Drive or the Photos tab the first time it is opened. After that the Sheet and the Drive folder are no longer updated — they stay as a backup.
+3. Redeploy. If `GOOGLE_SHEET_ID` is set, the first requests copy your recipes (keeping their ids), the import log and the **AppState** tab from the Sheet into the database; each existing photo is copied from Drive or the Photos tab the first time it is opened. After that the Sheet and the Drive folder are no longer updated — they stay as a backup. Without a Sheet, the database simply starts empty.
 4. Check: `https://anything-i-want.vercel.app/health` shows `"storage": "upstash"`.
+
+**Retiring the Sheet.** Once `/health` shows `"photos_still_outside_database": 0` (open any recipe whose photo hasn't been viewed since the move), nothing reads the Sheet or the Drive photos folder any more. Download a copy first (**File → Download → Microsoft Excel**), then you can delete the Sheet and remove `GOOGLE_SHEET_ID`, `GOOGLE_SERVICE_ACCOUNT_JSON` and `GOOGLE_PHOTOS_FOLDER_ID` from Vercel. Keep the database connected: without it the app falls back to the Sheet.
 
 Without the database, the app keeps saving everything in the Sheet. For local runs, copy the two values into `.env` (`UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` from the Upstash console work too).
 
@@ -219,7 +223,7 @@ Browsing the box works well on Vercel. Ingest may run up to **300 seconds** on H
 
 ## Notes
 
-- **The app.** Production is `https://anything-i-want.vercel.app/`. On this Mac, `http://127.0.0.1:8000/` is for local development. On iPhone, install **Anything I want** — see [`ios/README.md`](ios/README.md). Google Sheets remains the recipe database; Cupboard inventory and to-buy live in App State JSON on the server (not Sheet rows).
+- **The app.** Production is `https://anything-i-want.vercel.app/`. On this Mac, `http://127.0.0.1:8000/` is for local development. On iPhone, install **Anything I want** — see [`ios/README.md`](ios/README.md). Recipes, photos, Cupboard, Shop, Pack and Tasks live in the Upstash database (section 9), or in the Google Sheet when no database is connected.
 - **Offline and refresh.** Anything I want keeps the last successful Cookbook and Cupboard sync on the phone. Browsing, filtering, and cook mode work without a network; adding, favoriting, editing, deleting, and cupboard writes still need the server. The app refreshes when you open it, when you return from the background (so a Shortcut/web save while it was away is picked up), when connectivity comes back, or when you pull to refresh. iOS does not let it poll the server while it is fully suspended.
 - **Duplicates.** The same source URL is not ingested twice. One carousel post can still create several recipe rows on the first save (same URL on each row).
 - **Rate limits and busy responses.** On Vercel Hobby, the function may run up to 300s; Gemini itself is given about 140s for one `generate_content` so a slow save still counts as one request. A daily-quota 429 or a 503/504 capacity blip first retries once on the fallback model (same API key). If that also fails, a quota 429 surfaces the quota message below and a 503/504 surfaces "Gemini is busy right now. Wait a few seconds and try again." If the Shortcut timeout is shorter than the server, the phone can still show a 499.
@@ -228,7 +232,7 @@ Browsing the box works well on Vercel. Ingest may run up to **300 seconds** on H
 - **Cookbook ingredient filter** (`GET`/`PUT /api/pantry`). Flat string list used only on the Cookbook tab: type in search to mark ingredients, **AND**-filter recipes that use all of them, rank by **fit %**, sage banner **Filtered by …**. Synced across devices. This is **not** kitchen inventory.
 - **Cupboard** (`GET`/`PUT /api/pantry-inventory`, `GET`/`PUT /api/to-buy`). Separate stock rows (amount, unit, open/unopened, expiry, notes) plus a to-buy checklist with optional **qty**. Expiry badges step from outline date → sage (4–7 days) → terracotta (≤3 days) → **Expired**. Match mode on Items suggests recipes from selected stock. Recipe detail **+** toggles a line onto to-buy (qty prefilled from the ingredient chip). Independent of the Cookbook ingredient filter and of ingest.
 - **Tags.** A small fixed set (mom's recipes, veg, non-veg, dessert, high protein, airfryer) shown as quick-pick chips when adding/editing a recipe — enforced at the model layer. Multi-select filtering on Cookbook.
-- **Course.** Every recipe is Main course, Appetizers, Desserts, or Dips — Sheet column, Cookbook filter row, detail pill. `/ingest` derives it from Gemini's meal classification; add/edit flows (including Edit recipe) set it directly.
+- **Course.** Every recipe is Main course, Appetizers, Desserts, or Dips — stored with the recipe, Cookbook filter row, detail pill. `/ingest` derives it from Gemini's meal classification; add/edit flows (including Edit recipe) set it directly.
 - **API usage.** Settings shows today's Gemini read count (self-tracked, combined across primary and fallback) against 520, and this month's Apify spend against live credit (when `APIFY_API_TOKEN` is set), each with when it resets. Logs lists the last 50 import attempts (including photos).
 
 ## Layout
@@ -241,8 +245,10 @@ app/
   fetch.py      Apify for Instagram, yt-dlp for other video sources, plain HTTP + text extraction otherwise
   errors.py     Shared friendly-error-message mapping (Gemini quota, Apify limit)
   extract.py    Gemini video/image/text → structured JSON
-  store.py      Google Sheets + App State (inventory, to-buy, flat pantry filter)
+  store.py      Recipes, import log and app state (inventory, to-buy, tasks, …)
+  kv.py         Upstash database client (recipes, photos, lists); the Sheet is the fallback
+  photos.py     Recipe photos (database, or Drive / the Sheet's Photos tab without it)
   models.py     Recipe, PantryItem, ToBuyItem, …
-ios/            Anything I want (SwiftUI) — Cookbook + Cupboard
+ios/            Anything I want (SwiftUI) — Cookbook, Cupboard, Shop, Pack, Tasks
 vercel.json     Vercel function timeout
 ```

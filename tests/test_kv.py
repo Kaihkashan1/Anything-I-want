@@ -82,6 +82,7 @@ def upstash(monkeypatch):
     fake = FakeUpstash()
     monkeypatch.setattr(settings, "kv_rest_api_url", "https://example.upstash.io")
     monkeypatch.setattr(settings, "kv_rest_api_token", "token")
+    monkeypatch.setattr(settings, "google_sheet_id", "sheet-id")
     monkeypatch.setattr(kv.httpx, "post", fake.post)
     kv._migrated.clear()
     yield fake
@@ -282,3 +283,34 @@ def test_listing_recipes_never_downloads_photos(upstash, monkeypatch):
     upstash.calls.clear()
     store.list_recipes()
     assert all(not str(call[1]).startswith(kv.PHOTO_KEY_PREFIX) for call in upstash.calls)
+
+
+def test_a_setup_without_any_sheet_starts_empty(upstash, monkeypatch):
+    monkeypatch.setattr(settings, "google_sheet_id", "")
+
+    def no_sheet():
+        raise AssertionError("must not touch the Sheet")
+
+    monkeypatch.setattr(store, "_fetch_app_state", no_sheet)
+    monkeypatch.setattr(store, "_sheet_recipe_rows", no_sheet)
+    monkeypatch.setattr(store, "_sheet_import_log_values", no_sheet)
+    assert store.list_recipes() == []
+    assert store.get_tasks()[0] == []
+    store.log_import("https://a", "saved", "Dal")
+    assert [row["url"] for row in store.get_recent_imports()] == ["https://a"]
+    created = store.create_recipe(title="First", ingredients=["x"], steps=["y"],
+                                  course="Main course", tags=[], notes="")
+    assert created["id"] == 2
+
+
+def test_health_counts_photos_not_yet_copied(upstash, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import main, photos
+
+    monkeypatch.setattr(store, "_sheet_recipe_rows", lambda: SHEET_ROWS)  # recipe 4: Drive photo "abc"
+    client = TestClient(main.app)
+    assert client.get("/health").json()["photos_still_outside_database"] == 1
+    monkeypatch.setattr(photos, "download_recipe_photo", lambda file_id: (b"img", "image/jpeg"))
+    store.recipe_photo(4)
+    assert client.get("/health").json()["photos_still_outside_database"] == 0

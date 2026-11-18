@@ -273,11 +273,21 @@ def _read_app_state() -> dict:
     # With an Upstash database connected (app/kv.py), state lives there;
     # the Sheet's AppState cell is only read once, to copy it across.
     if kv.is_configured():
-        return kv.read_state(_fetch_app_state)
+        return kv.read_state(_sheet_state_to_copy)
     cached = _app_state_cache["data"]
     if cached is not None and time.monotonic() - _app_state_cache["at"] < _APP_STATE_TTL_SECONDS:
         return json.loads(json.dumps(cached))  # a copy, so callers can't edit the cache
     return json.loads(json.dumps(_fetch_app_state()))
+
+
+def _has_sheet() -> bool:
+    return bool(settings.google_sheet_id.strip())
+
+
+def _sheet_state_to_copy() -> dict:
+    """What the database copies in the first time. A setup that never had a
+    Sheet (no GOOGLE_SHEET_ID) simply starts empty."""
+    return _fetch_app_state() if _has_sheet() else {}
 
 
 def app_state_backend() -> str:
@@ -1156,7 +1166,7 @@ def log_import(url: str | None, status: str, reason: str, used_backup: bool = Fa
             model,
         ]
         if kv.is_configured():
-            kv.ensure_import_log_copied(_sheet_import_log_values)
+            kv.ensure_import_log_copied(lambda: _sheet_import_log_values() if _has_sheet() else [])
             kv.append_import_log(dict(zip(IMPORT_LOG_HEADERS, row)))
             return
         sheet = _import_log_worksheet()
@@ -1228,7 +1238,7 @@ def _sheet_import_log_values() -> list[list]:
 def get_recent_imports(limit: int = 50) -> list[dict]:
     try:
         if kv.is_configured():
-            kv.ensure_import_log_copied(_sheet_import_log_values)
+            kv.ensure_import_log_copied(lambda: _sheet_import_log_values() if _has_sheet() else [])
             # A few extra: "started" rows that later finished are dropped.
             entries = kv.import_log_entries(limit * 3)
             values = [IMPORT_LOG_HEADERS] + [
@@ -1254,7 +1264,7 @@ def _sheet_recipe_rows() -> list[dict]:
 def _use_kv_recipes() -> bool:
     if not kv.is_configured():
         return False
-    kv.ensure_recipes_copied(_sheet_recipe_rows)
+    kv.ensure_recipes_copied(lambda: _sheet_recipe_rows() if _has_sheet() else [])
     return True
 
 
@@ -1314,6 +1324,21 @@ def recipe_photo(row_id: int) -> tuple[bytes, str] | None:
         except Exception:
             logger.warning("Could not copy photo for recipe %s into the database", row_id, exc_info=True)
     return data, content_type
+
+
+def photos_not_in_database() -> int | None:
+    """How many recipes still point at a photo in Drive or the Sheet's
+    Photos tab (copied on first view — see recipe_photo). None without the
+    database. Once this is 0, nothing depends on the Sheet any more."""
+    if not _use_kv_recipes():
+        return None
+    return sum(
+        1
+        for _, record in kv.all_recipe_records()
+        if str(record.get("Title") or "").strip()
+        and str(record.get("Photo") or "").strip()
+        and not kv.is_photo_id(str(record.get("Photo") or "").strip())
+    )
 
 
 def recipe_backend() -> str:
