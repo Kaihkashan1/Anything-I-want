@@ -206,11 +206,11 @@ The web app and recipe API run on Vercel as a FastAPI function. Secrets stay in 
 
 ### Database for recipes and lists (free, recommended)
 
-Google Sheets only allows about 60 reads a minute, and the apps refresh several tabs at once. So recipes, the import log and everything else (Cupboard, Medicines, Shop, Pack, Tasks, their categories, the Gemini usage count) are saved in a small free Upstash Redis database. Recipe photos stay in your Drive folder.
+Google Sheets only allows about 60 reads a minute, and the apps refresh several tabs at once. So recipes, their photos, the import log and everything else (Cupboard, Medicines, Shop, Pack, Tasks, their categories, the Gemini usage count) are saved in a small free Upstash Redis database. Photos are shrunk to about 200–500 KB each before upload, so a few hundred fit in the free plan's 256 MB.
 
 1. In the Vercel project, open **Storage → Create Database** (or **Browse Marketplace**), pick **Upstash** → **Redis**, choose the free plan and any region close to you (Frankfurt for Germany), and create it. Leave the environment-variable prefix empty.
 2. When asked, connect it to this project for all environments. Vercel adds `KV_REST_API_URL` and `KV_REST_API_TOKEN` to the env vars by itself.
-3. Redeploy. The first requests copy your recipes (keeping their ids), the import log and the **AppState** tab from the Sheet into the database. After that the Sheet is no longer updated — it stays as a backup.
+3. Redeploy. The first requests copy your recipes (keeping their ids), the import log and the **AppState** tab from the Sheet into the database; each existing photo is copied from Drive or the Photos tab the first time it is opened. After that the Sheet and the Drive folder are no longer updated — they stay as a backup.
 4. Check: `https://anything-i-want.vercel.app/health` shows `"storage": "upstash"`.
 
 Without the database, the app keeps saving everything in the Sheet. For local runs, copy the two values into `.env` (`UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` from the Upstash console work too).

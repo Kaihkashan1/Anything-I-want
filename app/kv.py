@@ -249,3 +249,43 @@ def import_log_entries(limit: int) -> list[dict]:
         except ValueError:
             continue
     return entries
+
+
+# ---------- Photos ----------
+# Each recipe photo is its own key (never inside the recipes hash, so
+# listing recipes doesn't download every photo). The apps already shrink a
+# photo to at most 1600px JPEG before upload, so one is ~200-500 KB.
+PHOTO_KEY_PREFIX = "anything-i-want:photo:"
+PHOTO_ID_PREFIX = "kv:"
+
+
+def is_photo_id(photo_id: str) -> bool:
+    return str(photo_id or "").startswith(PHOTO_ID_PREFIX)
+
+
+def put_photo(data: bytes, content_type: str = "image/jpeg") -> str:
+    import base64
+    import uuid
+
+    photo_id = f"{PHOTO_ID_PREFIX}{uuid.uuid4().hex}"
+    payload = json.dumps({"type": content_type or "image/jpeg", "data": base64.b64encode(data).decode("ascii")})
+    _command("SET", PHOTO_KEY_PREFIX + photo_id[len(PHOTO_ID_PREFIX):], payload)
+    return photo_id
+
+
+def get_photo(photo_id: str) -> tuple[bytes, str] | None:
+    import base64
+
+    raw = _command("GET", PHOTO_KEY_PREFIX + photo_id[len(PHOTO_ID_PREFIX):])
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+        return base64.b64decode(payload["data"]), payload.get("type") or "image/jpeg"
+    except (ValueError, KeyError, TypeError):
+        logger.warning("Unreadable photo %s", photo_id)
+        return None
+
+
+def delete_photo(photo_id: str) -> None:
+    _command("DEL", PHOTO_KEY_PREFIX + photo_id[len(PHOTO_ID_PREFIX):])

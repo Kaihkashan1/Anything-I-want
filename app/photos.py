@@ -17,6 +17,7 @@ from pathlib import Path
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.service_account import Credentials
 
+from app import kv
 from app.config import ROOT, settings
 
 logger = logging.getLogger(__name__)
@@ -320,9 +321,20 @@ def _upload_drive(data: bytes, filename: str | None) -> str:
     return file_id
 
 
+def _content_type_for(data: bytes) -> str:
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return "image/jpeg"
+
+
 def upload_recipe_photo(data: bytes, *, filename: str | None = None) -> str:
     if not data:
         raise PhotoStoreError("That photo was empty.")
+    # With the Upstash database connected, photos live there (app/kv.py).
+    if kv.is_configured():
+        return kv.put_photo(data, _content_type_for(data))
     if settings.google_photos_folder_id.strip():
         try:
             return _upload_drive(data, filename)
@@ -340,6 +352,11 @@ def upload_recipe_photo(data: bytes, *, filename: str | None = None) -> str:
 
 
 def download_recipe_photo(file_id: str) -> tuple[bytes, str]:
+    if kv.is_photo_id(file_id):
+        found = kv.get_photo(file_id)
+        if found is None:
+            raise FileNotFoundError(file_id)
+        return found
     if is_local_photo_id(file_id):
         path = _local_path(file_id)
         if not path.is_file():
@@ -363,6 +380,9 @@ def download_recipe_photo(file_id: str) -> tuple[bytes, str]:
 
 def delete_recipe_photo(file_id: str) -> None:
     if not file_id:
+        return
+    if kv.is_photo_id(file_id):
+        kv.delete_photo(file_id)
         return
     if is_local_photo_id(file_id):
         path = _local_path(file_id)

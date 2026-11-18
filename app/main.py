@@ -40,6 +40,7 @@ from app.models import (
 )
 from app.pipeline import jobs, process_recipe
 from app.store import (
+    recipe_photo,
     app_state_backend,
     get_tasks,
     save_tasks,
@@ -475,14 +476,13 @@ async def _ingest_watching_client(request: Request, content: str, processor=proc
 
 @app.get("/api/recipes/{row_id}/photo", dependencies=[Depends(require_secret)])
 async def api_recipe_photo(row_id: int):
-    recipe = get_recipe(row_id)
-    photo_id = str((recipe or {}).get("photo_id") or "").strip()
-    if not recipe or not photo_id:
-        raise HTTPException(status_code=404, detail="Photo not found")
     try:
-        from app.photos import PhotoStoreError, download_recipe_photo
-
-        data, content_type = download_recipe_photo(photo_id)
+        found = recipe_photo(row_id)
+        if found is None:
+            raise HTTPException(status_code=404, detail="Photo not found")
+        data, content_type = found
+    except HTTPException:
+        raise
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Photo not found") from None
     except Exception as exc:

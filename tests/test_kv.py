@@ -40,6 +40,10 @@ class FakeUpstash:
                 return None
             self.strings[key] = rest[0]
             return "OK"
+        if command == "DEL":
+            existed = key in self.strings
+            self.strings.pop(key, None)
+            return int(existed)
         if command == "INCR":
             self.strings[key] = str(int(self.strings.get(key, "0")) + 1)
             return int(self.strings[key])
@@ -228,3 +232,53 @@ def test_health_reports_upstash(upstash):
     from app import main
 
     assert TestClient(main.app).get("/health").json()["storage"] == "upstash"
+
+
+def test_new_photos_are_stored_in_the_database(upstash, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import main
+
+    monkeypatch.setattr(store, "_sheet_recipe_rows", lambda: SHEET_ROWS)
+    jpeg = b"\xff\xd8\xff" + b"x" * 1000
+    created = store.create_recipe(title="Mom's dal", ingredients=["dal"], steps=["cook"],
+                                  course="Main course", tags=[], notes="", photo_bytes=jpeg)
+    assert created["photo_id"].startswith("kv:")
+    response = TestClient(main.app).get(f"/api/recipes/{created['id']}/photo")
+    assert response.status_code == 200 and response.content == jpeg
+    assert response.headers["content-type"] == "image/jpeg"
+    old_id = created["photo_id"]
+    replaced = store.update_recipe(created["id"], photo_bytes=b"\xff\xd8\xffnew")
+    assert replaced["photo_id"] != old_id
+    assert kv.get_photo(old_id) is None  # the replaced photo is deleted
+    store.delete_recipe(created["id"])
+    assert kv.get_photo(replaced["photo_id"]) is None
+
+
+def test_an_old_drive_photo_is_copied_on_first_view(upstash, monkeypatch):
+    from app import photos
+
+    monkeypatch.setattr(store, "_sheet_recipe_rows", lambda: SHEET_ROWS)  # recipe 4 has Photo "abc"
+    drive_reads = {"n": 0}
+    real_download = photos.download_recipe_photo
+
+    def download(file_id):
+        if file_id == "abc":
+            drive_reads["n"] += 1
+            return b"drive-bytes", "image/jpeg"
+        return real_download(file_id)
+
+    monkeypatch.setattr(photos, "download_recipe_photo", download)
+    assert store.recipe_photo(4) == (b"drive-bytes", "image/jpeg")
+    assert store.get_recipe(4)["photo_id"].startswith("kv:")
+    assert store.recipe_photo(4) == (b"drive-bytes", "image/jpeg")
+    assert drive_reads["n"] == 1
+
+
+def test_listing_recipes_never_downloads_photos(upstash, monkeypatch):
+    monkeypatch.setattr(store, "_sheet_recipe_rows", lambda: SHEET_ROWS)
+    store.create_recipe(title="Card", ingredients=["x"], steps=["y"], course="Main course",
+                        tags=[], notes="", photo_bytes=b"\xff\xd8\xffphoto")
+    upstash.calls.clear()
+    store.list_recipes()
+    assert all(not str(call[1]).startswith(kv.PHOTO_KEY_PREFIX) for call in upstash.calls)

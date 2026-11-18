@@ -1290,6 +1290,32 @@ def _new_recipe_id() -> int:
     return len(retry_sheets_call(lambda: _worksheet().col_values(1))) + 1
 
 
+def recipe_photo(row_id: int) -> tuple[bytes, str] | None:
+    """The recipe's photo. With the database connected, a photo still in
+    Drive or the Sheet's Photos tab is copied into the database the first
+    time it's opened and the recipe points at the copy from then on (the
+    original is left where it was, as a backup)."""
+    recipe = get_recipe(row_id)
+    photo_id = str((recipe or {}).get("photo_id") or "").strip()
+    if not recipe or not photo_id:
+        return None
+    from app.photos import download_recipe_photo
+
+    data, content_type = download_recipe_photo(photo_id)
+    if _use_kv_recipes() and not kv.is_photo_id(photo_id):
+        try:
+            new_id = kv.put_photo(data, content_type)
+            record = kv.recipe_record(row_id)
+            if record is not None and str(record.get("Photo") or "").strip() == photo_id:
+                kv.put_recipe_record(row_id, {**record, "Photo": new_id})
+                logger.info("Copied photo for recipe %s into the database", row_id)
+            else:
+                kv.delete_photo(new_id)  # the recipe changed meanwhile; keep its newer photo
+        except Exception:
+            logger.warning("Could not copy photo for recipe %s into the database", row_id, exc_info=True)
+    return data, content_type
+
+
 def recipe_backend() -> str:
     return "upstash" if kv.is_configured() else "google-sheet"
 
