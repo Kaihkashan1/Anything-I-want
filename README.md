@@ -198,8 +198,9 @@ The web app and recipe API run on Vercel as a FastAPI function. Secrets stay in 
    | `GEMINI_API_KEY` | same as `.env` |
    | `GEMINI_MODEL` | `gemini-3.6-flash` |
    | `GEMINI_FALLBACK_MODEL` | optional — defaults to `gemini-3.5-flash-lite` |
-   | `GOOGLE_SHEET_ID` | same as `.env` |
-   | `GOOGLE_SERVICE_ACCOUNT_JSON` | full contents of `service_account.json` |
+   | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | added by Vercel when you connect the database — see below |
+   | `GOOGLE_SHEET_ID` | optional — only without the database, or to copy an existing Sheet in |
+   | `GOOGLE_SERVICE_ACCOUNT_JSON` | optional — same as above; full contents of `service_account.json` |
    | `ANYTHING_I_WANT_SECRET` | same as `.env` |
    | `APIFY_API_TOKEN` | same as `.env` — required for Instagram links |
    | `NTFY_TOPIC` | optional |
@@ -215,7 +216,15 @@ Google Sheets only allows about 60 reads a minute, and the apps refresh several 
 3. Redeploy. If `GOOGLE_SHEET_ID` is set, the first requests copy your recipes (keeping their ids), the import log and the **AppState** tab from the Sheet into the database; each existing photo is copied from Drive or the Photos tab the first time it is opened. After that the Sheet and the Drive folder are no longer updated — they stay as a backup. Without a Sheet, the database simply starts empty.
 4. Check: `https://anything-i-want.vercel.app/health` shows `"storage": "upstash"`.
 
-**Retiring the Sheet.** Once `/health` shows `"photos_still_outside_database": 0` (open any recipe whose photo hasn't been viewed since the move), nothing reads the Sheet or the Drive photos folder any more. Download a copy first (**File → Download → Microsoft Excel**), then you can delete the Sheet and remove `GOOGLE_SHEET_ID`, `GOOGLE_SERVICE_ACCOUNT_JSON` and `GOOGLE_PHOTOS_FOLDER_ID` from Vercel. Keep the database connected: without it the app falls back to the Sheet.
+**Retiring the Sheet.** Once `/health` shows `"photos_still_outside_database": 0` (open any recipe whose photo hasn't been viewed since the move), nothing reads the Sheet or the Drive photos folder any more:
+
+1. Keep a backup: in the Sheet, **File → Download → Microsoft Excel (.xlsx)**.
+2. Delete the Sheet in Google Drive, and the **Anything I want photos** folder if you have one (its photos are already in the database).
+3. In Vercel → **Settings → Environment Variables**, remove `GOOGLE_SHEET_ID`, `GOOGLE_SERVICE_ACCOUNT_JSON` and `GOOGLE_PHOTOS_FOLDER_ID` (if set).
+4. Redeploy, then check `/health` still shows `"storage": "upstash"` and the app still has your recipes, photos and lists.
+5. Optional: delete the Google Cloud service account (or the whole Google Cloud project) — nothing uses it any more.
+
+Keep the database connected: without it the app falls back to the Sheet.
 
 Without the database, the app keeps saving everything in the Sheet. For local runs, copy the two values into `.env` (`UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` from the Upstash console work too).
 
