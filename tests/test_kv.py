@@ -7,30 +7,69 @@ from app.config import settings
 
 
 class FakeUpstash:
-    """Just enough of Upstash's REST API: HGETALL, HSET, HSETNX on one hash."""
+    """Just enough of Upstash's REST API for app/kv.py."""
 
     def __init__(self):
         self.hashes: dict[str, dict[str, str]] = {}
+        self.strings: dict[str, str] = {}
+        self.lists: dict[str, list[str]] = {}
         self.calls: list[list[str]] = []
+
+    def run(self, command, key, *rest):
+        data = self.hashes.setdefault(key, {})
+        lst = self.lists.setdefault(key, [])
+        if command == "HGETALL":
+            return [item for pair in data.items() for item in pair]
+        if command == "HSET":
+            for field, value in zip(rest[0::2], rest[1::2]):
+                data[field] = value
+            return len(rest) // 2
+        if command == "HSETNX":
+            field, value = rest
+            created = field not in data
+            data.setdefault(field, value)
+            return int(created)
+        if command == "HGET":
+            return data.get(rest[0])
+        if command == "HDEL":
+            return int(data.pop(rest[0], None) is not None)
+        if command == "GET":
+            return self.strings.get(key)
+        if command == "SET":
+            if "NX" in rest and key in self.strings:
+                return None
+            self.strings[key] = rest[0]
+            return "OK"
+        if command == "INCR":
+            self.strings[key] = str(int(self.strings.get(key, "0")) + 1)
+            return int(self.strings[key])
+        if command == "RPUSH":
+            lst.extend(rest)
+            return len(lst)
+        if command == "LPUSH":
+            for value in rest:
+                lst.insert(0, value)
+            return len(lst)
+        if command == "LTRIM":
+            start, stop = int(rest[0]), int(rest[1])
+            n = len(lst)
+            start = max(n + start, 0) if start < 0 else start
+            stop = n + stop if stop < 0 else stop
+            lst[:] = lst[start : stop + 1]
+            return "OK"
+        if command == "LRANGE":
+            start, stop = int(rest[0]), int(rest[1])
+            n = len(lst)
+            start = max(n + start, 0) if start < 0 else start
+            stop = n + stop if stop < 0 else stop
+            return lst[start : stop + 1]
+        raise AssertionError(command)
 
     def post(self, url, headers=None, json=None, timeout=None):
         import httpx
 
         self.calls.append(json)
-        command, key, *rest = json
-        data = self.hashes.setdefault(key, {})
-        if command == "HGETALL":
-            result = [item for pair in data.items() for item in pair]
-        elif command == "HSET":
-            for field, value in zip(rest[0::2], rest[1::2]):
-                data[field] = value
-            result = len(rest) // 2
-        elif command == "HSETNX":
-            field, value = rest
-            result = 0 if field in data else 1
-            data.setdefault(field, value)
-        else:  # pragma: no cover
-            raise AssertionError(command)
+        result = self.run(*json)
         return httpx.Response(200, json={"result": result}, request=httpx.Request("POST", url))
 
 
@@ -40,7 +79,9 @@ def upstash(monkeypatch):
     monkeypatch.setattr(settings, "kv_rest_api_url", "https://example.upstash.io")
     monkeypatch.setattr(settings, "kv_rest_api_token", "token")
     monkeypatch.setattr(kv.httpx, "post", fake.post)
-    return fake
+    kv._migrated.clear()
+    yield fake
+    kv._migrated.clear()
 
 
 def test_first_read_copies_the_sheet_state_once(upstash, monkeypatch):
@@ -108,3 +149,82 @@ def test_without_upstash_the_sheet_is_used(monkeypatch):
     monkeypatch.setattr(settings, "kv_rest_api_url", "")
     monkeypatch.setattr(settings, "upstash_redis_rest_url", "")
     assert store.app_state_backend() == "google-sheet"
+
+
+SHEET_ROWS = [
+    {"Title": "Dal", "Ingredients": "- 1 cup lentils", "Steps": "1. Boil", "Source": "https://example.com/dal",
+     "Confidence": "high", "Saved at": "2026-01-01 10:00 UTC", "Tags": "Indian", "Favorite": "TRUE",
+     "Notes": "", "Course": "Main course", "Photo": ""},
+    {"Title": "", "Ingredients": "", "Steps": "", "Source": "", "Confidence": "", "Saved at": "",
+     "Tags": "", "Favorite": "", "Notes": "", "Course": "", "Photo": ""},  # a deleted row
+    {"Title": "Brownies", "Ingredients": "- chocolate", "Steps": "1. Bake", "Source": "",
+     "Confidence": "high", "Saved at": "2026-02-01 10:00 UTC", "Tags": "", "Favorite": "",
+     "Notes": "", "Course": "Desserts", "Photo": "abc"},
+]
+
+
+def test_recipes_are_copied_with_their_sheet_row_ids(upstash, monkeypatch):
+    monkeypatch.setattr(store, "_sheet_recipe_rows", lambda: SHEET_ROWS)
+    recipes = store.list_recipes()
+    assert [(r["id"], r["title"]) for r in recipes] == [(4, "Brownies"), (2, "Dal")]
+    assert recipes[1]["favorite"] is True and recipes[0]["photo_id"] == "abc"
+    assert store.get_recipe(2)["ingredients"] == ["1 cup lentils"]
+    assert store.get_recipe(3) is None  # the deleted row stays gone
+    assert store.source_exists("https://example.com/dal")
+
+
+def test_new_recipes_continue_after_the_last_sheet_row_and_ids_are_never_reused(upstash, monkeypatch):
+    monkeypatch.setattr(store, "_sheet_recipe_rows", lambda: SHEET_ROWS)
+    created = store.create_recipe(title="Toast", ingredients=["bread"], steps=["toast"],
+                                  course="Main course", tags=[], notes="")
+    assert created["id"] == 5
+    assert store.delete_recipe(5)
+    assert store.get_recipe(5) is None
+    again = store.create_recipe(title="Tea", ingredients=["tea"], steps=["brew"],
+                                course="Main course", tags=[], notes="")
+    assert again["id"] == 6
+
+
+def test_editing_a_recipe_keeps_untouched_fields(upstash, monkeypatch):
+    monkeypatch.setattr(store, "_sheet_recipe_rows", lambda: SHEET_ROWS)
+    updated = store.update_recipe(2, favorite=False, notes="extra salt")
+    assert updated["favorite"] is False and updated["notes"] == "extra salt"
+    fresh = store.get_recipe(2)
+    assert fresh["favorite"] is False and fresh["notes"] == "extra salt"
+    assert fresh["tags"] == ["indian"] and fresh["saved_at"] == "2026-01-01 10:00 UTC"
+
+
+def test_the_sheet_is_read_once_for_recipes(upstash, monkeypatch):
+    reads = {"n": 0}
+
+    def rows():
+        reads["n"] += 1
+        return SHEET_ROWS
+
+    monkeypatch.setattr(store, "_sheet_recipe_rows", rows)
+    store.list_recipes()
+    kv._migrated.clear()  # a fresh server instance still sees the marker
+    store.list_recipes()
+    store.get_recipe(2)
+    assert reads["n"] == 1
+
+
+def test_import_log_is_copied_then_appended(upstash, monkeypatch):
+    sheet_log = [
+        ["timestamp", "url", "status", "reason", "used_backup", "model"],
+        ["01-11-2026 10:00 CET", "https://a", "saved", "Dal", "FALSE", "gemini-3.6-flash"],
+    ]
+    monkeypatch.setattr(store, "_sheet_import_log_values", lambda: sheet_log)
+    store.log_import("https://b", "error", "Apify found nothing at that link.")
+    rows = store.get_recent_imports()
+    assert [row["url"] for row in rows] == ["https://b", "https://a"]
+    assert rows[1]["timestamp"] == "01-11-26 10:00 CET"
+    assert rows[0]["status"] == "error"
+
+
+def test_health_reports_upstash(upstash):
+    from fastapi.testclient import TestClient
+
+    from app import main
+
+    assert TestClient(main.app).get("/health").json()["storage"] == "upstash"

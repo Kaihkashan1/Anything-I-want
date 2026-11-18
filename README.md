@@ -204,16 +204,16 @@ The web app and recipe API run on Vercel as a FastAPI function. Secrets stay in 
 
 4. Redeploy after saving env vars. Production is [https://anything-i-want.vercel.app/](https://anything-i-want.vercel.app/).
 
-### Database for Cupboard, Shop, Pack and Tasks (free, recommended)
+### Database for recipes and lists (free, recommended)
 
-Recipes live in the Google Sheet. Everything else (Cupboard, Medicines, Shop, Pack, Tasks, their categories, the Gemini usage count) is saved in a small free Upstash Redis database, because Google Sheets only allows about 60 reads a minute and the apps refresh several tabs at once.
+Google Sheets only allows about 60 reads a minute, and the apps refresh several tabs at once. So recipes, the import log and everything else (Cupboard, Medicines, Shop, Pack, Tasks, their categories, the Gemini usage count) are saved in a small free Upstash Redis database. Recipe photos stay in your Drive folder.
 
-1. In the Vercel project, open **Storage → Create Database** (or **Browse Marketplace**), pick **Upstash** → **Redis**, choose the free plan and any region close to you (Frankfurt for Germany), and create it.
+1. In the Vercel project, open **Storage → Create Database** (or **Browse Marketplace**), pick **Upstash** → **Redis**, choose the free plan and any region close to you (Frankfurt for Germany), and create it. Leave the environment-variable prefix empty.
 2. When asked, connect it to this project for all environments. Vercel adds `KV_REST_API_URL` and `KV_REST_API_TOKEN` to the env vars by itself.
-3. Redeploy. The first request copies your existing data from the Sheet's **AppState** tab into the database; after that the Sheet's AppState tab is no longer updated (it stays as a backup).
+3. Redeploy. The first requests copy your recipes (keeping their ids), the import log and the **AppState** tab from the Sheet into the database. After that the Sheet is no longer updated — it stays as a backup.
 4. Check: `https://anything-i-want.vercel.app/health` shows `"storage": "upstash"`.
 
-Without the database, the app keeps saving that data in the Sheet. For local runs, copy the two values into `.env` (`UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` from the Upstash console work too).
+Without the database, the app keeps saving everything in the Sheet. For local runs, copy the two values into `.env` (`UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` from the Upstash console work too).
 
 Browsing the box works well on Vercel. Ingest may run up to **300 seconds** on Hobby Fluid; a long reel plus Gemini can still time out if the phone hangs up first. If that happens, you can temporarily point the Shortcut at a local Mac ingest URL.
 

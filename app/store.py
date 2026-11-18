@@ -1155,6 +1155,10 @@ def log_import(url: str | None, status: str, reason: str, used_backup: bool = Fa
             "TRUE" if used_backup else "FALSE",
             model,
         ]
+        if kv.is_configured():
+            kv.ensure_import_log_copied(_sheet_import_log_values)
+            kv.append_import_log(dict(zip(IMPORT_LOG_HEADERS, row)))
+            return
         sheet = _import_log_worksheet()
         _widen_import_log(sheet)
         retry_sheets_call(lambda: sheet.append_row(row, value_input_option="RAW"))
@@ -1217,19 +1221,86 @@ def _parse_import_log_values(values: list[list], limit: int = 50) -> list[dict]:
     return rows[: max(0, limit)]
 
 
+def _sheet_import_log_values() -> list[list]:
+    return retry_sheets_call(lambda: _import_log_worksheet().get_all_values())
+
+
 def get_recent_imports(limit: int = 50) -> list[dict]:
     try:
-        values = _import_log_worksheet().get_all_values()
+        if kv.is_configured():
+            kv.ensure_import_log_copied(_sheet_import_log_values)
+            # A few extra: "started" rows that later finished are dropped.
+            entries = kv.import_log_entries(limit * 3)
+            values = [IMPORT_LOG_HEADERS] + [
+                [str(entry.get(name) or "") for name in IMPORT_LOG_HEADERS] for entry in entries
+            ]
+        else:
+            values = _sheet_import_log_values()
     except Exception:
         logger.exception("Failed to read import log")
         return []
     return _parse_import_log_values(values, limit=limit)
 
 
+# ---------- Where recipe rows live ----------
+# With the Upstash database connected (app/kv.py) recipes are stored there,
+# one record per id with the Sheet's column names; otherwise in the Sheet,
+# where the id is the row number. These helpers are the only code that
+# knows which — everything below works on (id, record) pairs.
+def _sheet_recipe_rows() -> list[dict]:
+    return retry_sheets_call(lambda: _worksheet().get_all_records())
+
+
+def _use_kv_recipes() -> bool:
+    if not kv.is_configured():
+        return False
+    kv.ensure_recipes_copied(_sheet_recipe_rows)
+    return True
+
+
+def _recipe_records() -> list[tuple[int, dict]]:
+    if _use_kv_recipes():
+        return kv.all_recipe_records()
+    return list(enumerate(_sheet_recipe_rows(), start=2))
+
+
+def _recipe_record(row_id: int) -> dict | None:
+    if row_id < 2:
+        return None
+    if _use_kv_recipes():
+        return kv.recipe_record(row_id)
+    records = _sheet_recipe_rows()
+    index = row_id - 2
+    if index < 0 or index >= len(records):
+        return None
+    return records[index]
+
+
+def _write_recipe(row_id: int, row: list) -> None:
+    if _use_kv_recipes():
+        kv.put_recipe_record(row_id, dict(zip(HEADERS, row)))
+    else:
+        _update_recipe_row(_worksheet(), row_id, row)
+
+
+def _new_recipe_id() -> int:
+    """See save_recipe for why the Sheet path computes an explicit row."""
+    if _use_kv_recipes():
+        return kv.next_recipe_id()
+    return len(retry_sheets_call(lambda: _worksheet().col_values(1))) + 1
+
+
+def recipe_backend() -> str:
+    return "upstash" if kv.is_configured() else "google-sheet"
+
+
 def source_exists(url: str) -> bool:
     url = normalize_url(url)
-    values = retry_sheets_call(lambda: _worksheet().col_values(SOURCE_COL))
-    known = {normalize_url(item) for item in values[1:] if item}
+    if _use_kv_recipes():
+        values = [str(record.get("Source") or "") for _, record in kv.all_recipe_records()]
+    else:
+        values = retry_sheets_call(lambda: _worksheet().col_values(SOURCE_COL))[1:]
+    known = {normalize_url(item) for item in values if item}
     return url in known
 
 
@@ -1259,10 +1330,9 @@ def save_recipe(recipe: Recipe, post: FetchedPost) -> None:
     # is unambiguous and can't drift like that. col_values(1) returns every
     # row up to the last non-blank title, including blank/soft-deleted rows
     # in between, so its length is exactly the last real row number.
-    worksheet = _worksheet()
-    next_row = len(retry_sheets_call(lambda: worksheet.col_values(1))) + 1
-    _update_recipe_row(worksheet, next_row, row)
-    logger.info("Saved %r to Google Sheets", recipe.title)
+    next_row = _new_recipe_id()
+    _write_recipe(next_row, row)
+    logger.info("Saved %r as recipe %s (%s)", recipe.title, next_row, recipe_backend())
 
 
 def create_recipe(
@@ -1318,10 +1388,9 @@ def create_recipe(
     )
     # See save_recipe for why this writes to an explicit row instead of
     # using append_row's auto-detected table range.
-    worksheet = _worksheet()
-    row_id = len(worksheet.col_values(1)) + 1
-    _update_recipe_row(worksheet, row_id, row)
-    logger.info("Created row %s (%r) via manual entry", row_id, title)
+    row_id = _new_recipe_id()
+    _write_recipe(row_id, row)
+    logger.info("Created recipe %s (%r) via manual entry", row_id, title)
 
     # Build the response from what we just wrote instead of a second read —
     # same reasoning as update_recipe: one Sheets API round trip, not two.
@@ -1354,8 +1423,15 @@ def delete_recipe(row_id: int) -> bool:
     current = get_recipe(row_id)
     if current is None:
         return False
-    blank_row = [""] * len(HEADERS)
-    _worksheet().update(f"A{row_id}:{LAST_COL_LETTER}{row_id}", [blank_row], value_input_option="RAW")
+    if _use_kv_recipes():
+        kv.delete_recipe_record(row_id)
+    else:
+        blank_row = [""] * len(HEADERS)
+        retry_sheets_call(
+            lambda: _worksheet().update(
+                f"A{row_id}:{LAST_COL_LETTER}{row_id}", [blank_row], value_input_option="RAW"
+            )
+        )
     photo_id = str(current.get("photo_id") or "").strip()
     if photo_id:
         try:
@@ -1426,8 +1502,8 @@ def update_recipe(row_id: int, **fields) -> dict | None:
         course=course,
         photo=photo_id,
     )
-    _update_recipe_row(_worksheet(), row_id, row)
-    logger.info("Updated row %s (%r)", row_id, title)
+    _write_recipe(row_id, row)
+    logger.info("Updated recipe %s (%r)", row_id, title)
 
     # Build the response from what we just wrote instead of a second read —
     # one Sheets API round trip per edit instead of two.
@@ -1459,6 +1535,11 @@ def replace_ingredient_lines(row_id: int, lines: list[str]) -> None:
     """Rewrite only the Ingredients cell — used when backfilling section
     headings onto recipes that were saved as a flat list."""
     text = "\n".join(f"- {line}" for line in lines)
+    if _use_kv_recipes():
+        record = kv.recipe_record(row_id)
+        if record is not None:
+            kv.put_recipe_record(row_id, {**record, "Ingredients": text})
+        return
     _worksheet().update(
         f"{INGREDIENTS_COL_LETTER}{row_id}",
         [[text]],
@@ -1467,9 +1548,8 @@ def replace_ingredient_lines(row_id: int, lines: list[str]) -> None:
 
 
 def list_recipes() -> list[dict]:
-    records = retry_sheets_call(lambda: _worksheet().get_all_records())
     recipes = []
-    for index, record in enumerate(records, start=2):
+    for index, record in _recipe_records():
         if not str(record.get("Title") or "").strip():
             continue
         recipes.append(_record_to_recipe(index, record))
@@ -1478,14 +1558,8 @@ def list_recipes() -> list[dict]:
 
 
 def get_recipe(row_id: int) -> dict | None:
-    if row_id < 2:
-        return None
-    records = _worksheet().get_all_records()
-    index = row_id - 2
-    if index < 0 or index >= len(records):
-        return None
-    record = records[index]
-    if not str(record.get("Title") or "").strip():
+    record = _recipe_record(row_id)
+    if not record or not str(record.get("Title") or "").strip():
         return None
     return _record_to_recipe(row_id, record)
 

@@ -130,7 +130,7 @@ async def favicon():
 
 @app.get("/health")
 async def health():
-    # "storage" says where Cupboard/Shop/Tasks live: "upstash" once the
+    # "storage" says where recipes and lists live: "upstash" once the
     # database is connected, otherwise "google-sheet".
     return {"ok": True, "storage": app_state_backend()}
 
