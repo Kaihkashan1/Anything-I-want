@@ -102,7 +102,7 @@ def _worksheet():
     info = settings.service_account_info()
     client = gspread.service_account_from_dict(info)
     try:
-        sheet = client.open_by_key(settings.google_sheet_id)
+        sheet = retry_sheets_call(lambda: client.open_by_key(settings.google_sheet_id))
     except PermissionError as exc:
         email = info.get("client_email") or "the service account"
         raise RuntimeError(
@@ -121,7 +121,7 @@ def _ensure_headers(worksheet) -> list[str]:
     if needed. Callers that only care about a specific column (see
     _ensure_course_validation) can reuse this instead of issuing their own
     row_values(1) read."""
-    existing = worksheet.row_values(1)
+    existing = retry_sheets_call(lambda: worksheet.row_values(1))
     if existing[: len(HEADERS)] == HEADERS:
         return existing
     if not any(existing):
@@ -177,20 +177,40 @@ def _is_retryable_sheets_error(exc: BaseException) -> bool:
     )
 
 
+def _is_sheets_rate_limit(exc: BaseException) -> bool:
+    if isinstance(exc, gspread.exceptions.APIError):
+        return getattr(exc, "code", None) == 429
+    text = str(exc).lower()
+    return "429" in text or "rate limit" in text or "quota exceeded" in text
+
+
 def retry_sheets_call(op, *, attempts: int = 4, delay: float = 0.7):
-    """Google Sheets occasionally answers 429/5xx; a short backoff is enough."""
+    """Google Sheets occasionally answers 429/5xx. A 5xx blip clears in a
+    second or two; a 429 is the per-minute read/write quota, so those wait
+    much longer (2, 4, 8, 16s — about half a minute in all) before giving up."""
     last: BaseException | None = None
     wait = delay
-    for attempt in range(attempts):
+    rate_wait = 2.0
+    attempt = 0
+    while True:
         try:
             return op()
         except Exception as exc:
             last = exc
-            if not _is_retryable_sheets_error(exc) or attempt == attempts - 1:
+            if not _is_retryable_sheets_error(exc):
                 raise
-            logger.warning("Google Sheets retry %s/%s: %s", attempt + 1, attempts, exc)
-            time.sleep(wait)
-            wait *= 1.7
+            limited = _is_sheets_rate_limit(exc)
+            allowed = max(attempts, 5) if limited else attempts
+            attempt += 1
+            if attempt >= allowed:
+                raise
+            pause = rate_wait if limited else wait
+            logger.warning("Google Sheets retry %s/%s in %.1fs: %s", attempt, allowed, pause, exc)
+            time.sleep(pause)
+            if limited:
+                rate_wait *= 2
+            else:
+                wait *= 1.7
     raise last  # pragma: no cover
 
 
@@ -228,18 +248,42 @@ def _state_worksheet():
         return worksheet
 
 
-def _read_app_state() -> dict:
-    raw = _state_worksheet().acell("A1").value or "{}"
+# The whole AppState lives in one cell, and one request often reads it
+# several times (e.g. the cupboard list, then its categories), while the
+# apps refresh several tabs at once. Reads within a few seconds of each
+# other in the same process reuse the last value, to stay well under
+# Google Sheets' per-minute read quota. Short enough that a change from
+# another device still shows up on the next refresh.
+_APP_STATE_TTL_SECONDS = 3.0
+_app_state_cache: dict = {"at": 0.0, "data": None}
+
+
+def _fetch_app_state() -> dict:
+    raw = retry_sheets_call(lambda: _state_worksheet().acell("A1").value) or "{}"
     try:
-        return json.loads(raw)
+        data = json.loads(raw)
     except json.JSONDecodeError:
-        return {}
+        data = {}
+    _app_state_cache.update(at=time.monotonic(), data=data)
+    return data
+
+
+def _read_app_state() -> dict:
+    cached = _app_state_cache["data"]
+    if cached is not None and time.monotonic() - _app_state_cache["at"] < _APP_STATE_TTL_SECONDS:
+        return json.loads(json.dumps(cached))  # a copy, so callers can't edit the cache
+    return json.loads(json.dumps(_fetch_app_state()))
 
 
 def _write_app_state(**updates) -> None:
-    data = _read_app_state()
+    # Always merge into a fresh read, never the cache: another device may
+    # have saved a different key a moment ago.
+    data = _fetch_app_state()
     data.update(updates)
-    _state_worksheet().update("A1", [[json.dumps(data)]], value_input_option="RAW")
+    retry_sheets_call(
+        lambda: _state_worksheet().update("A1", [[json.dumps(data)]], value_input_option="RAW")
+    )
+    _app_state_cache.update(at=time.monotonic(), data=data)
 
 
 def get_have_items() -> list[str]:
@@ -954,10 +998,14 @@ def record_gemini_read() -> None:
     make — success or failure, primary or backup model. Failed photo/
     Instagram reads still count when Google accepted the request. There is
     no quota-remaining endpoint; this is a local tally of those calls."""
-    today = datetime.now(_PACIFIC).date().isoformat()
-    usage = _read_app_state().get("gemini_usage") or {}
-    count = usage.get("count", 0) + 1 if usage.get("date") == today else 1
-    _write_app_state(gemini_usage={"date": today, "count": count})
+    # Best-effort: a busy Sheet must never fail an import over a counter.
+    try:
+        today = datetime.now(_PACIFIC).date().isoformat()
+        usage = _read_app_state().get("gemini_usage") or {}
+        count = usage.get("count", 0) + 1 if usage.get("date") == today else 1
+        _write_app_state(gemini_usage={"date": today, "count": count})
+    except Exception:
+        logger.warning("Could not update the Gemini usage count", exc_info=True)
 
 
 def get_gemini_reads_today() -> int:
@@ -1097,7 +1145,7 @@ def log_import(url: str | None, status: str, reason: str, used_backup: bool = Fa
         ]
         sheet = _import_log_worksheet()
         _widen_import_log(sheet)
-        sheet.append_row(row, value_input_option="RAW")
+        retry_sheets_call(lambda: sheet.append_row(row, value_input_option="RAW"))
     except Exception:
         logger.exception("Failed to write import log")
 
@@ -1168,7 +1216,7 @@ def get_recent_imports(limit: int = 50) -> list[dict]:
 
 def source_exists(url: str) -> bool:
     url = normalize_url(url)
-    values = _worksheet().col_values(SOURCE_COL)
+    values = retry_sheets_call(lambda: _worksheet().col_values(SOURCE_COL))
     known = {normalize_url(item) for item in values[1:] if item}
     return url in known
 
@@ -1200,7 +1248,7 @@ def save_recipe(recipe: Recipe, post: FetchedPost) -> None:
     # row up to the last non-blank title, including blank/soft-deleted rows
     # in between, so its length is exactly the last real row number.
     worksheet = _worksheet()
-    next_row = len(worksheet.col_values(1)) + 1
+    next_row = len(retry_sheets_call(lambda: worksheet.col_values(1))) + 1
     _update_recipe_row(worksheet, next_row, row)
     logger.info("Saved %r to Google Sheets", recipe.title)
 
@@ -1407,7 +1455,7 @@ def replace_ingredient_lines(row_id: int, lines: list[str]) -> None:
 
 
 def list_recipes() -> list[dict]:
-    records = _worksheet().get_all_records()
+    records = retry_sheets_call(lambda: _worksheet().get_all_records())
     recipes = []
     for index, record in enumerate(records, start=2):
         if not str(record.get("Title") or "").strip():
