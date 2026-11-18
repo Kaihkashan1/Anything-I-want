@@ -46,7 +46,7 @@ class ReadAuthTests(unittest.TestCase):
 
     def test_home_and_health_stay_reachable(self):
         self.assertEqual(self.client.get("/").status_code, 200)
-        self.assertEqual(self.client.get("/health").json(), {"ok": True})
+        self.assertTrue(self.client.get("/health").json()["ok"])
 
     def test_placeholder_secret_does_not_lock_the_box(self):
         settings.anything_i_want_secret = "change-me"

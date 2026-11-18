@@ -40,6 +40,7 @@ from app.models import (
 )
 from app.pipeline import jobs, process_recipe
 from app.store import (
+    app_state_backend,
     get_tasks,
     save_tasks,
     add_to_buy_source,
@@ -129,7 +130,9 @@ async def favicon():
 
 @app.get("/health")
 async def health():
-    return {"ok": True}
+    # "storage" says where Cupboard/Shop/Tasks live: "upstash" once the
+    # database is connected, otherwise "google-sheet".
+    return {"ok": True, "storage": app_state_backend()}
 
 
 @app.post("/api/session", dependencies=[Depends(require_secret)])

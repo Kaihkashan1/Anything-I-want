@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 import gspread
 
+from app import kv
 from app.config import settings
 from app.fetch import normalize_url
 from app.match import (
@@ -269,13 +270,24 @@ def _fetch_app_state() -> dict:
 
 
 def _read_app_state() -> dict:
+    # With an Upstash database connected (app/kv.py), state lives there;
+    # the Sheet's AppState cell is only read once, to copy it across.
+    if kv.is_configured():
+        return kv.read_state(_fetch_app_state)
     cached = _app_state_cache["data"]
     if cached is not None and time.monotonic() - _app_state_cache["at"] < _APP_STATE_TTL_SECONDS:
         return json.loads(json.dumps(cached))  # a copy, so callers can't edit the cache
     return json.loads(json.dumps(_fetch_app_state()))
 
 
+def app_state_backend() -> str:
+    return "upstash" if kv.is_configured() else "google-sheet"
+
+
 def _write_app_state(**updates) -> None:
+    if kv.is_configured():
+        kv.write_fields(updates)
+        return
     # Always merge into a fresh read, never the cache: another device may
     # have saved a different key a moment ago.
     data = _fetch_app_state()

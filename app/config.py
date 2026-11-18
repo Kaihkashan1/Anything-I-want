@@ -38,6 +38,18 @@ class Settings(BaseSettings):
     # fetch.py's _pick_comment_text / _fetch_more_comments for why this
     # exists (a real gap this actor's own limited comment sample missed).
     apify_comments_actor: str = "apify~instagram-scraper"
+    # Upstash Redis for the shared app state (see app/kv.py). Vercel's
+    # Upstash integration sets the KV_* names; Upstash's console shows the
+    # UPSTASH_* ones. Either pair works; without one the Sheet is used.
+    kv_rest_api_url: str = ""
+    kv_rest_api_token: str = ""
+    upstash_redis_rest_url: str = ""
+    upstash_redis_rest_token: str = ""
+
+    def kv_credentials(self) -> tuple[str, str]:
+        url = (self.kv_rest_api_url or self.upstash_redis_rest_url).strip()
+        token = (self.kv_rest_api_token or self.upstash_redis_rest_token).strip()
+        return url, token
 
     def has_service_account(self) -> bool:
         return bool(self.google_service_account_json.strip()) or self.google_service_account_file.exists()
