@@ -92,6 +92,7 @@ const SECRET_KEY = "anythingIWant.secret";
 const HAVE_KEY = "anythingIWant.have";
 const RECIPES_CACHE_KEY = "anythingIWant.recipesCache";
 const VIEW_MODE_KEY = "anythingIWant.viewMode";
+const CUPBOARD_ORDER_KEY = "anythingIWant.cupboardOrder";
 
 const LOCK_NOTES = [
   "You again.",
@@ -195,6 +196,11 @@ function loadViewMode() {
   return localStorage.getItem(VIEW_MODE_KEY) === "grid" ? "grid" : "list";
 }
 
+function loadCupboardOrder() {
+  const stored = localStorage.getItem(CUPBOARD_ORDER_KEY);
+  return stored === "za" || stored === "expiry" ? stored : "az";
+}
+
 const state = {
   recipes: [],
   pantryGroups: [],
@@ -205,6 +211,7 @@ const state = {
   favoritesOnly: false,
   sort: "recent",
   viewMode: loadViewMode(),
+  cupboardOrder: loadCupboardOrder(),
   sourceFilters: new Set(),
   openRecipeId: null,
   editingId: null,
@@ -2330,28 +2337,77 @@ function inventorySearchMatch(item, needle) {
   return false;
 }
 
+// Soonest expiry first. A missing date sorts after every real one, and the
+// same date falls back to name. ISO YYYY-MM-DD compares in date order.
+function compareInventoryByExpiry(a, b) {
+  const ae = String(a.expiry || "").trim();
+  const be = String(b.expiry || "").trim();
+  if (ae !== be) {
+    if (!ae) return 1;
+    if (!be) return -1;
+    return ae < be ? -1 : 1;
+  }
+  return String(a.name || "").localeCompare(String(b.name || ""));
+}
+
+function compareInventoryOrder(a, b) {
+  if (state.cupboardOrder === "za") {
+    return String(b.name || "").localeCompare(String(a.name || ""));
+  }
+  if (state.cupboardOrder === "expiry") return compareInventoryByExpiry(a, b);
+  return String(a.name || "").localeCompare(String(b.name || ""));
+}
+
+function applyCupboardOrder() {
+  document.querySelectorAll("[data-cupboard-order]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.cupboardOrder === state.cupboardOrder);
+  });
+  const sortBtn = document.getElementById("cupboard-sort-btn");
+  if (sortBtn) sortBtn.classList.toggle("active", state.cupboardOrder !== "az");
+}
+
+function openCupboardSort() {
+  const panel = document.getElementById("cupboard-sort-panel");
+  const btn = document.getElementById("cupboard-sort-btn");
+  if (!panel || !btn) return;
+  panel.hidden = false;
+  btn.setAttribute("aria-expanded", "true");
+}
+
+function closeCupboardSort() {
+  const panel = document.getElementById("cupboard-sort-panel");
+  const btn = document.getElementById("cupboard-sort-btn");
+  if (!panel || !btn) return;
+  panel.hidden = true;
+  btn.setAttribute("aria-expanded", "false");
+}
+
 function renderInventory(kind) {
   renderCupboardChrome();
   const config = INVENTORY_KINDS[kind];
   const items = state[config.itemsKey];
   const needle = (config.searchEl()?.value || "").trim().toLowerCase();
   const visibleItems = needle ? items.filter((item) => inventorySearchMatch(item, needle)) : items;
-  const groups = groupInventoryByCategory(visibleItems, state[config.categoriesKey]);
   // Always the total count, like iOS — a search narrows what's shown, not
   // what "items" means.
   config.statusEl().textContent =
     items.length === 1 ? t(config.countOneKey, { n: items.length }) : t(config.countOtherKey, { n: items.length });
   const listEl = config.listEl();
-  if (!groups.length) {
+  const gridClass = state.viewMode === "list" ? " view-list" : " view-grid";
+  if (!visibleItems.length) {
     listEl.innerHTML = `<div class="empty">${escapeHtml(needle ? t("inventoryNoMatch") : t(config.emptyLabel))}</div>`;
     return;
   }
+  const groups = groupInventoryByCategory(visibleItems, state[config.categoriesKey]).map(([category, groupItems]) => {
+    const rows = [...groupItems].sort(compareInventoryOrder);
+    return [category, rows];
+  });
   listEl.innerHTML = groups
     .map(
       ([category, groupItems]) => `
     <div class="pantry-group" style="grid-column:1/-1;">
       <h3 class="pantry-heading">${escapeHtml(category)}</h3>
-      <div class="grid${state.viewMode === "list" ? " view-list" : " view-grid"}">${groupItems.map((item) => inventoryCardHtml(kind, item)).join("")}</div>
+      <div class="grid${gridClass}">${groupItems.map((item) => inventoryCardHtml(kind, item)).join("")}</div>
     </div>`
     )
     .join("");
@@ -3718,6 +3774,22 @@ els.cupboardSegments?.addEventListener("click", (event) => {
   if (!btn) return;
   setCupboardSegment(btn.dataset.cupboardSegment);
 });
+document.getElementById("cupboard-sort-btn")?.addEventListener("click", () => {
+  const panel = document.getElementById("cupboard-sort-panel");
+  if (!panel) return;
+  if (panel.hidden) openCupboardSort();
+  else closeCupboardSort();
+});
+
+document.getElementById("cupboard-order")?.addEventListener("click", (event) => {
+  const btn = event.target.closest("[data-cupboard-order]");
+  if (!btn) return;
+  const order = btn.dataset.cupboardOrder;
+  state.cupboardOrder = order === "za" || order === "expiry" ? order : "az";
+  localStorage.setItem(CUPBOARD_ORDER_KEY, state.cupboardOrder);
+  applyCupboardOrder();
+  renderInventory(state.cupboardSegment === "medicines" ? "medicine" : "cupboard");
+});
 els.shopSegments?.addEventListener("click", (event) => {
   const btn = event.target.closest("[data-shop-segment]");
   if (!btn) return;
@@ -3736,6 +3808,14 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  const panel = document.getElementById("cupboard-sort-panel");
+  const btn = document.getElementById("cupboard-sort-btn");
+  if (!panel || panel.hidden || !btn) return;
+  if (panel.contains(event.target) || btn.contains(event.target)) return;
+  closeCupboardSort();
+});
+
+document.addEventListener("click", (event) => {
   const menu = document.querySelector(".recipe-menu");
   if (!menu || menu.hidden) return;
   if (menu.contains(event.target) || event.target.closest('[data-action="toggle-recipe-menu"]')) return;
@@ -3743,7 +3823,9 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !els.filtersPanel.hidden) closeFilters();
+  if (event.key !== "Escape") return;
+  if (!els.filtersPanel.hidden) closeFilters();
+  closeCupboardSort();
 });
 
 els.settingsBtn.addEventListener("click", openSettings);
@@ -4104,6 +4186,7 @@ document.getElementById("lock-form")?.addEventListener("submit", async (event) =
 
 applyStaticI18n();
 applyViewMode();
+applyCupboardOrder();
 openSession().then((ok) => {
   if (!ok) return;
   loadCachedRecipes();

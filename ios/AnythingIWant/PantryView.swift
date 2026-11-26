@@ -1,5 +1,118 @@
 import SwiftUI
 
+/// How the Cupboard orders rows inside each category — the same chip row as
+/// the cookbook's Sort, with expiry in place of Recent.
+enum CupboardOrder: String {
+    case az
+    case za
+    case expiry
+}
+
+/// Soonest expiry first. A missing date sorts after every real one, and the
+/// same date falls back to name. ISO `YYYY-MM-DD` compares in date order.
+func isBeforeByExpiry(
+    name lhsName: String,
+    expiry lhsExpiry: String?,
+    name rhsName: String,
+    expiry rhsExpiry: String?
+) -> Bool {
+    let lhs = (lhsExpiry?.isEmpty == false) ? lhsExpiry : nil
+    let rhs = (rhsExpiry?.isEmpty == false) ? rhsExpiry : nil
+    if lhs != rhs {
+        if lhs == nil { return false }
+        if rhs == nil { return true }
+        return lhs! < rhs!
+    }
+    return lhsName.localizedCaseInsensitiveCompare(rhsName) == .orderedAscending
+}
+
+func orderedCupboardItems<Item>(
+    _ items: [Item],
+    order: CupboardOrder,
+    name: (Item) -> String,
+    expiry: (Item) -> String?
+) -> [Item] {
+    switch order {
+    case .az:
+        return items.sorted { name($0).localizedCaseInsensitiveCompare(name($1)) == .orderedAscending }
+    case .za:
+        return items.sorted { name($0).localizedCaseInsensitiveCompare(name($1)) == .orderedDescending }
+    case .expiry:
+        return items.sorted {
+            isBeforeByExpiry(name: name($0), expiry: expiry($0), name: name($1), expiry: expiry($1))
+        }
+    }
+}
+
+/// The cookbook's filters control, used here for sort only. The three chips
+/// stay in the sheet until this is tapped.
+struct CupboardSortButton: View {
+    @Binding var order: CupboardOrder
+    @State private var showSort = false
+
+    private var sorting: Bool { order != .az }
+
+    var body: some View {
+        Button {
+            showSort = true
+        } label: {
+            LucideIcon(.sliders, size: 19)
+                .foregroundStyle(sorting ? .white : Theme.neutral800)
+                .frame(width: 46, height: 46)
+                .background(sorting ? Theme.accent : Theme.surface)
+                .overlay {
+                    if !sorting {
+                        Capsule().strokeBorder(Theme.divider, lineWidth: 1)
+                    }
+                }
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(L("Sort"))
+        .sheet(isPresented: $showSort) {
+            CupboardSortSheet(order: $order)
+                .presentationDetents([.height(260)])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(34)
+        }
+    }
+}
+
+private struct CupboardSortSheet: View {
+    @Binding var order: CupboardOrder
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }
+                    .font(Theme.body(14, weight: .bold))
+                    .foregroundStyle(Theme.accent700)
+                    .buttonStyle(.plain)
+            }
+            Text("Sort")
+                .font(Theme.display(30))
+                .foregroundStyle(Theme.ink)
+            HStack(spacing: 7) {
+                ChipButton(title: L("A–Z"), selected: order == .az, fillsWidth: true) {
+                    order = .az
+                }
+                ChipButton(title: L("Z–A"), selected: order == .za, fillsWidth: true) {
+                    order = .za
+                }
+                ChipButton(title: L("Expiry"), selected: order == .expiry, fillsWidth: true) {
+                    order = .expiry
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Theme.screenPadding)
+        .padding(.top, 16)
+        .background(Theme.bg.ignoresSafeArea())
+    }
+}
+
 /// Cupboard tab — groceries and medicines in one place. Shopping lives on
 /// the Shop tab. Recipe fit % on the list screen stays on RecipeStore.have.
 struct PantryView: View {
@@ -11,6 +124,7 @@ struct PantryView: View {
     @Binding var expiryFocus: ExpiryFocus?
 
     @State private var segment: CupboardSegment = .groceries
+    @AppStorage("anythingIWant.cupboardSort") private var cupboardOrder: CupboardOrder = .az
     /// Token of the reminder already scrolled to, so a later refresh doesn't
     /// yank the list back to that row.
     @State private var revealedToken: UUID?
@@ -55,9 +169,12 @@ struct PantryView: View {
                     .padding(.bottom, 12)
 
                 if segment == .groceries {
-                    stockSearchField
-                        .padding(.horizontal, Theme.screenPadding)
-                        .padding(.bottom, 10)
+                    HStack(spacing: 10) {
+                        stockSearchField
+                        CupboardSortButton(order: $cupboardOrder)
+                    }
+                    .padding(.horizontal, Theme.screenPadding)
+                    .padding(.bottom, 10)
                     itemsToolbar
                         .padding(.horizontal, Theme.screenPadding)
                         .padding(.bottom, 12)
@@ -68,6 +185,7 @@ struct PantryView: View {
                     MedicineView(
                         embedded: true,
                         externalAdd: $requestMedicineAdd,
+                        order: $cupboardOrder,
                         highlightedID: medicineHighlightID,
                         focusToken: medicineHighlightID == nil ? nil : expiryFocus?.token,
                         onConsumeHighlight: { expiryFocus = nil }
@@ -215,16 +333,31 @@ struct PantryView: View {
         .clipShape(Capsule())
     }
 
+    private var stockQueryText: String {
+        stockQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func groceryMatches(_ item: PantryItem, query: String) -> Bool {
+        guard !query.isEmpty else { return true }
+        return item.name.lowercased().contains(query)
+            || item.pantryCategories.contains { $0.lowercased().contains(query) }
+    }
+
     private var filteredGroupedItems: [(category: String, items: [PantryItem])] {
-        let q = stockQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return pantry.groupedItems }
-        return pantry.groupedItems.compactMap { group in
-            let rows = group.items.filter {
-                $0.name.lowercased().contains(q)
-                    || $0.pantryCategories.contains { name in name.lowercased().contains(q) }
+        let q = stockQueryText
+        let groups: [(category: String, items: [PantryItem])]
+        if q.isEmpty {
+            groups = pantry.groupedItems
+        } else {
+            groups = pantry.groupedItems.compactMap { group in
+                let rows = group.items.filter { groceryMatches($0, query: q) }
+                guard !rows.isEmpty else { return nil }
+                return (group.category, rows)
             }
-            guard !rows.isEmpty else { return nil }
-            return (group.category, rows)
+        }
+        guard cupboardOrder != .az else { return groups }
+        return groups.map { group in
+            (group.category, orderedCupboardItems(group.items, order: cupboardOrder, name: \.name, expiry: \.expiry))
         }
     }
 
@@ -255,6 +388,7 @@ struct PantryView: View {
             }
         }
     }
+
 
     // MARK: - Items
 

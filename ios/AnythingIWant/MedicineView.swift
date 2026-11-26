@@ -7,6 +7,7 @@ struct MedicineView: View {
 
     var embedded = false
     @Binding var externalAdd: Bool
+    @Binding var order: CupboardOrder
     /// Set when an expiry reminder opened this medicine. Nil otherwise.
     var highlightedID: String? = nil
     var focusToken: UUID? = nil
@@ -18,12 +19,14 @@ struct MedicineView: View {
     init(
         embedded: Bool = false,
         externalAdd: Binding<Bool> = .constant(false),
+        order: Binding<CupboardOrder> = .constant(.az),
         highlightedID: String? = nil,
         focusToken: UUID? = nil,
         onConsumeHighlight: @escaping () -> Void = {}
     ) {
         self.embedded = embedded
         self._externalAdd = externalAdd
+        self._order = order
         self.highlightedID = highlightedID
         self.focusToken = focusToken
         self.onConsumeHighlight = onConsumeHighlight
@@ -143,36 +146,54 @@ struct MedicineView: View {
     }
 
     private var searchField: some View {
-        HStack(spacing: 9) {
-            LucideIcon(.search, size: 17)
-                .foregroundStyle(Theme.neutral600)
-            TextField(L("Search your medicines"), text: $query)
-                .font(Theme.body(14.5))
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+        HStack(spacing: 10) {
+            HStack(spacing: 9) {
+                LucideIcon(.search, size: 17)
+                    .foregroundStyle(Theme.neutral600)
+                TextField(L("Search your medicines"), text: $query)
+                    .font(Theme.body(14.5))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 46)
+            .background(Theme.surface)
+            .overlay(Capsule().strokeBorder(Theme.divider, lineWidth: 1))
+            .clipShape(Capsule())
+            CupboardSortButton(order: $order)
         }
-        .padding(.horizontal, 16)
-        .frame(height: 46)
-        .background(Theme.surface)
-        .overlay(Capsule().strokeBorder(Theme.divider, lineWidth: 1))
-        .clipShape(Capsule())
     }
 
     private var filterActive: Bool {
         !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private var queryText: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func medicineMatches(_ item: MedicineItem, query: String) -> Bool {
+        guard !query.isEmpty else { return true }
+        return item.name.lowercased().contains(query)
+            || item.purpose.lowercased().contains(query)
+            || item.categories.contains { $0.lowercased().contains(query) }
+    }
+
     private var filteredGroupedItems: [(category: String, items: [MedicineItem])] {
-        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return medicines.groupedItems }
-        return medicines.groupedItems.compactMap { group in
-            let rows = group.items.filter {
-                $0.name.lowercased().contains(q)
-                    || $0.purpose.lowercased().contains(q)
-                    || $0.categories.contains { name in name.lowercased().contains(q) }
+        let q = queryText
+        let groups: [(category: String, items: [MedicineItem])]
+        if q.isEmpty {
+            groups = medicines.groupedItems
+        } else {
+            groups = medicines.groupedItems.compactMap { group in
+                let rows = group.items.filter { medicineMatches($0, query: q) }
+                guard !rows.isEmpty else { return nil }
+                return (group.category, rows)
             }
-            guard !rows.isEmpty else { return nil }
-            return (group.category, rows)
+        }
+        guard order != .az else { return groups }
+        return groups.map { group in
+            (group.category, orderedCupboardItems(group.items, order: order, name: \.name, expiry: \.expiry))
         }
     }
 

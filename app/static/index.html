@@ -128,14 +128,31 @@
         <button class="chip active" type="button" data-cupboard-segment="groceries" data-i18n="groceries">Groceries</button>
         <button class="chip" type="button" data-cupboard-segment="medicines" data-i18n="medicinesTab">Medicines</button>
       </div>
-      <label class="search view-search" id="cupboard-stock-search-wrap">
-        <span class="visually-hidden" data-i18n="searchCupboardAria">Search what's in the cupboard</span>
-        <input id="cupboard-search" type="search" data-i18n-placeholder="searchCupboardPlaceholder" placeholder="Search what's in stock">
-      </label>
-      <label class="search view-search" id="cupboard-medicines-search-wrap" hidden>
-        <span class="visually-hidden" data-i18n="searchMedicinesAria">Search your medicines</span>
-        <input id="medicines-search" type="search" data-i18n-placeholder="searchMedicinesPlaceholder" placeholder="Search your medicines">
-      </label>
+      <div class="cupboard-search-row">
+        <label class="search view-search" id="cupboard-stock-search-wrap">
+          <span class="visually-hidden" data-i18n="searchCupboardAria">Search what's in the cupboard</span>
+          <input id="cupboard-search" type="search" data-i18n-placeholder="searchCupboardPlaceholder" placeholder="Search what's in stock">
+        </label>
+        <label class="search view-search" id="cupboard-medicines-search-wrap" hidden>
+          <span class="visually-hidden" data-i18n="searchMedicinesAria">Search your medicines</span>
+          <input id="medicines-search" type="search" data-i18n-placeholder="searchMedicinesPlaceholder" placeholder="Search your medicines">
+        </label>
+        <div class="filters-anchor">
+          <button id="cupboard-sort-btn" class="filters-btn cupboard-sort-btn" type="button" aria-haspopup="true" aria-expanded="false" data-i18n-aria="sort" aria-label="Sort">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+          </button>
+          <div id="cupboard-sort-panel" class="filters-panel cupboard-sort-panel" hidden>
+            <section>
+              <h2 class="eyebrow" data-i18n="sort">Sort</h2>
+              <div class="chips" id="cupboard-order">
+                <button class="chip active" type="button" data-cupboard-order="az" data-i18n="az">A–Z</button>
+                <button class="chip" type="button" data-cupboard-order="za" data-i18n="za">Z–A</button>
+                <button class="chip" type="button" data-cupboard-order="expiry" data-i18n="sortByExpiry">Expiry</button>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
       <p id="cupboard-status" class="status"></p>
       <div id="cupboard-list" class="grid"></div>
       <p id="medicines-status" class="status" hidden></p>

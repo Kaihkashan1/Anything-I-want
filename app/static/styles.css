@@ -847,6 +847,32 @@ button.card-body {
   font-size: 0.81rem;
 }
 
+.cupboard-search-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-bottom: 1rem;
+}
+
+.cupboard-search-row .view-search {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.cupboard-sort-btn {
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  justify-content: center;
+  flex: none;
+}
+
+.cupboard-sort-panel {
+  width: max-content;
+  min-width: 16rem;
+}
+
 .shop-segments .chip {
   flex: 1 1 30%;
   min-width: 0;

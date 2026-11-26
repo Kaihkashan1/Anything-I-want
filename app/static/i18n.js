@@ -264,6 +264,7 @@ const I18N = {
     delete: "Delete",
     name: "Name",
     category: "Category",
+    sortByExpiry: "Expiry",
     categories: "Categories",
     amount: "Amount",
     unit: "Unit",
