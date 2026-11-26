@@ -747,6 +747,18 @@
     "Instagram reel or recipe page" : {
       "extractionState" : "manual"
     },
+    "Installed %@ · %lld days left" : {
+      "extractionState" : "manual"
+    },
+    "Installed %@ · 1 day left" : {
+      "extractionState" : "manual"
+    },
+    "Installed %@ · expired — reinstall" : {
+      "extractionState" : "manual"
+    },
+    "Installed %@ · reinstall today" : {
+      "extractionState" : "manual"
+    },
     "Items" : {
       "extractionState" : "manual"
     },

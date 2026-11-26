@@ -16,6 +16,8 @@ struct AnythingIWantApp: App {
 
     init() {
         BundledFonts.register()
+        // Before the first scene, so a tap that launches the app is delivered.
+        ExpiryNotificationRouter.install()
     }
 
     var body: some Scene {
@@ -26,6 +28,7 @@ struct AnythingIWantApp: App {
                 .environment(medicineStore)
                 .environment(taskStore)
                 .environment(connectivity)
+                .environment(ExpiryNotificationRouter.shared)
                 .environment(\.locale, Locale(identifier: "en"))
                 .onOpenURL { url in
                     store.pendingRoute = Self.route(for: url)

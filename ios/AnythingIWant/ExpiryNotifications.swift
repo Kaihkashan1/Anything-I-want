@@ -1,12 +1,64 @@
 import Foundation
+import Observation
 import UserNotifications
+
+/// Which cupboard list an expiry reminder points at.
+enum ExpiryKind: String, Equatable {
+    case grocery
+    case medicine
+}
+
+/// A tapped expiry reminder. `token` is new every tap so opening the same
+/// item again still scrolls to it.
+struct ExpiryFocus: Equatable {
+    var id: String
+    var kind: ExpiryKind?
+    var token: UUID
+}
+
+/// Set when the user taps an expiry reminder. RootView switches to Cupboard
+/// and PantryView scrolls that row into view.
+@MainActor
+@Observable
+final class ExpiryNotificationRouter {
+    static let shared = ExpiryNotificationRouter()
+    var pending: ExpiryFocus?
+
+    private init() {}
+
+    static func install() {
+        let center = UNUserNotificationCenter.current()
+        center.delegate = ExpiryNotificationDelegate.shared
+    }
+}
+
+private final class ExpiryNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
+    static let shared = ExpiryNotificationDelegate()
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let focus = ExpiryNotifications.focus(from: response)
+        if let focus {
+            Task { @MainActor in
+                ExpiryNotificationRouter.shared.pending = focus
+            }
+        }
+        completionHandler()
+    }
+}
 
 /// Local reminders for cupboard groceries and medicines that expire soon.
 /// Fires at 9:00 on the morning 7 days before, 3 days before, and on the
 /// expiry date — matching the badges already shown on those rows.
+/// Tapping one opens that product in the Cupboard list.
 enum ExpiryNotifications {
     static let enabledKey = "anythingIWant.expiryNotificationsEnabled"
     private static let idPrefix = "expiry."
+    private static let itemIDKey = "expiryItemID"
+    private static let kindKey = "expiryKind"
     private static let leadDays = [7, 3, 0]
     private static let hour = 9
     private static let pendingCap = 64
@@ -61,10 +113,10 @@ enum ExpiryNotifications {
     ) -> [UNNotificationRequest] {
         var candidates: [(Date, UNNotificationRequest)] = []
         for item in pantry {
-            appendCandidates(name: item.name, expiry: item.expiry, id: item.id, into: &candidates)
+            appendCandidates(name: item.name, expiry: item.expiry, id: item.id, kind: .grocery, into: &candidates)
         }
         for item in medicines {
-            appendCandidates(name: item.name, expiry: item.expiry, id: item.id, into: &candidates)
+            appendCandidates(name: item.name, expiry: item.expiry, id: item.id, kind: .medicine, into: &candidates)
         }
         return candidates
             .sorted { $0.0 < $1.0 }
@@ -72,10 +124,31 @@ enum ExpiryNotifications {
             .map(\.1)
     }
 
+    /// The item a notification tap should open. Reminders scheduled before
+    /// this payload existed still work: their identifier is `expiry.<id>.<lead>`.
+    static func focus(from response: UNNotificationResponse) -> ExpiryFocus? {
+        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier else { return nil }
+        let request = response.notification.request
+        let info = request.content.userInfo
+        let kind = (info[kindKey] as? String).flatMap(ExpiryKind.init(rawValue:))
+        let id = (info[itemIDKey] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            ?? idFromIdentifier(request.identifier)
+        guard let id else { return nil }
+        return ExpiryFocus(id: id, kind: kind, token: UUID())
+    }
+
+    private static func idFromIdentifier(_ identifier: String) -> String? {
+        guard identifier.hasPrefix(idPrefix) else { return nil }
+        let rest = identifier.dropFirst(idPrefix.count)
+        guard let dot = rest.lastIndex(of: "."), dot > rest.startIndex else { return nil }
+        return String(rest[..<dot])
+    }
+
     private static func appendCandidates(
         name: String,
         expiry: String?,
         id: String,
+        kind: ExpiryKind,
         into candidates: inout [(Date, UNNotificationRequest)]
     ) {
         guard let expiry, let day = parseExpiry(expiry) else { return }
@@ -97,6 +170,10 @@ enum ExpiryNotifications {
                 ? L("\(name) expires today.")
                 : L("\(name) expires in \(lead) days.")
             content.sound = .default
+            content.userInfo = [
+                itemIDKey: id,
+                kindKey: kind.rawValue,
+            ]
 
             let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
             let request = UNNotificationRequest(

@@ -8,8 +8,12 @@ struct PantryView: View {
     @Environment(MedicineStore.self) private var medicines
 
     var onOpenRecipe: (Int) -> Void = { _ in }
+    @Binding var expiryFocus: ExpiryFocus?
 
     @State private var segment: CupboardSegment = .groceries
+    /// Token of the reminder already scrolled to, so a later refresh doesn't
+    /// yank the list back to that row.
+    @State private var revealedToken: UUID?
     @State private var matchMode = false
     @State private var matchSelectedIDs: Set<String> = []
     @State private var presentedSheet: CupboardPresentedSheet?
@@ -42,6 +46,7 @@ struct PantryView: View {
     }
 
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 header
@@ -60,7 +65,13 @@ struct PantryView: View {
                         .padding(.horizontal, Theme.screenPadding)
                         .padding(.bottom, 16)
                 } else {
-                    MedicineView(embedded: true, externalAdd: $requestMedicineAdd)
+                    MedicineView(
+                        embedded: true,
+                        externalAdd: $requestMedicineAdd,
+                        highlightedID: medicineHighlightID,
+                        focusToken: medicineHighlightID == nil ? nil : expiryFocus?.token,
+                        onConsumeHighlight: { expiryFocus = nil }
+                    )
                         .padding(.horizontal, Theme.screenPadding)
                         .padding(.bottom, 16)
                 }
@@ -93,6 +104,19 @@ struct PantryView: View {
         }
         .onChange(of: matchMode) { _, enabled in
             if !enabled { matchSelectedIDs = [] }
+        }
+        .onAppear {
+            revealExpiryFocus(using: proxy)
+        }
+        .onChange(of: expiryFocus?.token) { _, _ in
+            revealExpiryFocus(using: proxy)
+        }
+        .onChange(of: pantry.items) { _, _ in
+            revealExpiryFocus(using: proxy)
+        }
+        .onChange(of: medicines.items) { _, _ in
+            revealExpiryFocus(using: proxy)
+        }
         }
     }
 
@@ -283,6 +307,7 @@ struct PantryView: View {
 
                     ForEach(group.items) { item in
                         pantryRow(item)
+                            .id(rowAnchorID(item: item, category: group.category))
                     }
                 }
                 .padding(.bottom, 18)
@@ -338,7 +363,13 @@ struct PantryView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 13)
-        .cardBackground(radius: 22)
+        .cardBackground(radius: 22, fill: isExpiryHighlight(item.id) ? Theme.accent100 : Theme.surface)
+        .overlay {
+            if isExpiryHighlight(item.id) {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(Theme.accent, lineWidth: 2)
+            }
+        }
         .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .onTapGesture {
             if matchMode {
@@ -348,6 +379,7 @@ struct PantryView: View {
                     matchSelectedIDs.insert(item.id)
                 }
             } else {
+                expiryFocus = nil
                 presentedSheet = .editItem(item)
             }
         }
@@ -439,6 +471,64 @@ struct PantryView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.sage100)
         .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+    }
+
+    private var medicineHighlightID: String? {
+        guard let focus = expiryFocus else { return nil }
+        switch locatedKind(for: focus.id) ?? focus.kind {
+        case .medicine: return focus.id
+        case .grocery, nil: return nil
+        }
+    }
+
+    private func isExpiryHighlight(_ id: String) -> Bool {
+        guard expiryFocus?.id == id else { return false }
+        switch locatedKind(for: id) ?? expiryFocus?.kind {
+        case .grocery: return true
+        case .medicine, nil: return false
+        }
+    }
+
+    private func locatedKind(for id: String) -> ExpiryKind? {
+        if pantry.items.contains(where: { $0.id == id }) { return .grocery }
+        if medicines.items.contains(where: { $0.id == id }) { return .medicine }
+        return nil
+    }
+
+    /// First copy of a multi-category item keeps the plain id so scrollTo can find it.
+    private func rowAnchorID(item: PantryItem, category: String) -> String {
+        let anchor = filteredGroupedItems.first { $0.items.contains { $0.id == item.id } }?.category
+        return category == anchor ? item.id : "\(item.id)#\(category)"
+    }
+
+    private func revealExpiryFocus(using proxy: ScrollViewProxy) {
+        guard let focus = expiryFocus else { return }
+        let located = locatedKind(for: focus.id)
+        switch located ?? focus.kind {
+        case .grocery:
+            segment = .groceries
+            stockQuery = ""
+            matchMode = false
+            presentedSheet = nil
+        case .medicine:
+            segment = .medicines
+            presentedSheet = nil
+        case nil:
+            return
+        }
+        guard located != nil else { return }
+        guard revealedToken != focus.token else { return }
+        revealedToken = focus.token
+        let id = focus.id
+        Task { @MainActor in
+            for _ in 0..<2 {
+                try? await Task.sleep(for: .milliseconds(160))
+                guard expiryFocus?.id == id else { return }
+                withAnimation(.easeInOut(duration: 0.35)) {
+                    proxy.scrollTo(id, anchor: .center)
+                }
+            }
+        }
     }
 
 }

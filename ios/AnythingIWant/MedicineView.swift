@@ -7,13 +7,26 @@ struct MedicineView: View {
 
     var embedded = false
     @Binding var externalAdd: Bool
+    /// Set when an expiry reminder opened this medicine. Nil otherwise.
+    var highlightedID: String? = nil
+    var focusToken: UUID? = nil
+    var onConsumeHighlight: () -> Void = {}
 
     @State private var presentedSheet: MedicinePresentedSheet?
     @State private var query = ""
 
-    init(embedded: Bool = false, externalAdd: Binding<Bool> = .constant(false)) {
+    init(
+        embedded: Bool = false,
+        externalAdd: Binding<Bool> = .constant(false),
+        highlightedID: String? = nil,
+        focusToken: UUID? = nil,
+        onConsumeHighlight: @escaping () -> Void = {}
+    ) {
         self.embedded = embedded
         self._externalAdd = externalAdd
+        self.highlightedID = highlightedID
+        self.focusToken = focusToken
+        self.onConsumeHighlight = onConsumeHighlight
     }
 
     private enum MedicinePresentedSheet: Identifiable {
@@ -58,6 +71,10 @@ struct MedicineView: View {
             guard requested else { return }
             presentedSheet = .addItem
             externalAdd = false
+        }
+        .onAppear { applyExpiryFocus() }
+        .onChange(of: focusToken) { _, _ in
+            applyExpiryFocus()
         }
         .sheet(item: $presentedSheet) { sheet in
             sheetContent(for: sheet)
@@ -183,6 +200,7 @@ struct MedicineView: View {
 
                     ForEach(group.items) { item in
                         medicineRow(item)
+                            .id(rowAnchorID(item: item, category: group.category))
                     }
                 }
                 .padding(.bottom, 18)
@@ -235,9 +253,16 @@ struct MedicineView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 13)
-        .cardBackground(radius: 22)
+        .cardBackground(radius: 22, fill: highlightedID == item.id ? Theme.accent100 : Theme.surface)
+        .overlay {
+            if highlightedID == item.id {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(Theme.accent, lineWidth: 2)
+            }
+        }
         .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .onTapGesture {
+            onConsumeHighlight()
             presentedSheet = .editItem(item)
         }
         .accessibilityAddTraits(.isButton)
@@ -261,6 +286,19 @@ struct MedicineView: View {
             foreground: expiry.foreground,
             border: expiry.border
         )
+    }
+
+    private func applyExpiryFocus() {
+        guard focusToken != nil else { return }
+        query = ""
+        presentedSheet = nil
+    }
+
+    /// First copy of a multi-category item keeps the plain id so the cupboard
+    /// scroll view can find it.
+    private func rowAnchorID(item: MedicineItem, category: String) -> String {
+        let anchor = filteredGroupedItems.first { $0.items.contains { $0.id == item.id } }?.category
+        return category == anchor ? item.id : "\(item.id)#\(category)"
     }
 
     private func metaChip(

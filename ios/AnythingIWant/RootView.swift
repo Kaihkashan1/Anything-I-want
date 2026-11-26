@@ -44,8 +44,11 @@ struct RootView: View {
     @Environment(MedicineStore.self) private var medicineStore
     @Environment(TaskStore.self) private var taskStore
     @Environment(Connectivity.self) private var connectivity
+    @Environment(ExpiryNotificationRouter.self) private var expiryNotifications
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab: AppTab = .recipes
+    /// Set when an expiry reminder is tapped; PantryView scrolls to that row.
+    @State private var pantryFocus: ExpiryFocus?
     @State private var activeSheet: ActiveSheet?
     @State private var addRecipePrefill: RecipeExtraction?
     @State private var addRecipePhotoJPEG: Data?
@@ -100,6 +103,9 @@ struct RootView: View {
         .toolbarBackground(.visible, for: .tabBar)
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
+                if let install = AppInstall.current {
+                    InstallBanner(install: install)
+                }
                 if connectivity.isOffline {
                     OfflineBanner()
                 } else if let message = refreshErrorMessage {
@@ -123,6 +129,7 @@ struct RootView: View {
             UITabBar.appearance().scrollEdgeAppearance = appearance
             UITabBar.appearance().unselectedItemTintColor = UIColor(Theme.neutral500)
             handle(store.pendingRoute)
+            openExpiryNotification(expiryNotifications.pending)
         }
         .sheet(item: $activeSheet, onDismiss: performPendingAddAction) { sheet in
             // Presentation modifiers (detents etc.) are applied ONCE, here,
@@ -219,6 +226,9 @@ struct RootView: View {
         }
         .onChange(of: store.pendingRoute) { _, route in
             handle(route)
+        }
+        .onChange(of: expiryNotifications.pending) { _, focus in
+            openExpiryNotification(focus)
         }
         .onChange(of: photoImportStatus) { _, _ in
             handlePhotoImportUpdate()
@@ -399,11 +409,14 @@ struct RootView: View {
 
     private var pantryTab: some View {
         NavigationStack {
-            PantryView(onOpenRecipe: { id in
-                selectedTab = .recipes
-                recipesPath = NavigationPath()
-                recipesPath.append(id)
-            })
+            PantryView(
+                onOpenRecipe: { id in
+                    selectedTab = .recipes
+                    recipesPath = NavigationPath()
+                    recipesPath.append(id)
+                },
+                expiryFocus: $pantryFocus
+            )
         }
     }
 
@@ -520,5 +533,13 @@ struct RootView: View {
             }
         }
         store.pendingRoute = nil
+    }
+
+    private func openExpiryNotification(_ focus: ExpiryFocus?) {
+        guard let focus else { return }
+        activeSheet = nil
+        selectedTab = .pantry
+        pantryFocus = focus
+        expiryNotifications.pending = nil
     }
 }

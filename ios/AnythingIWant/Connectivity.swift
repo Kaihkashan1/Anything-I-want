@@ -75,3 +75,78 @@ struct RefreshFailedBanner: View {
         .background(Theme.accent100)
     }
 }
+
+/// When this copy of the app was signed, and when that signature stops
+/// launching it. A free Apple developer install lasts 7 days; reading the
+/// embedded profile is the real deadline, and it resets on every reinstall.
+/// Year-long and App Store builds have no short profile, so `current` is nil
+/// and the banner stays hidden.
+struct AppInstall: Equatable {
+    var installedAt: Date
+    var expiresAt: Date
+
+    /// Whole calendar days until the profile stops launching the app.
+    /// Zero means it still runs today; negative means it has already lapsed.
+    var daysLeft: Int {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let expiry = calendar.startOfDay(for: expiresAt)
+        return calendar.dateComponents([.day], from: today, to: expiry).day ?? 0
+    }
+
+    var bannerText: String {
+        let date = shortDateString(installedAt)
+        switch daysLeft {
+        case 1:
+            return L("Installed \(date) · 1 day left")
+        case 2...:
+            return L("Installed \(date) · \(daysLeft) days left")
+        case 0:
+            return L("Installed \(date) · reinstall today")
+        default:
+            return L("Installed \(date) · expired — reinstall")
+        }
+    }
+
+    static var current: AppInstall? {
+        guard let profile = provisioningDates() else { return nil }
+        let lifetime = profile.expires.timeIntervalSince(profile.created)
+        guard lifetime > 0, lifetime <= 14 * 24 * 60 * 60 else { return nil }
+        return AppInstall(installedAt: profile.created, expiresAt: profile.expires)
+    }
+
+    private static func provisioningDates() -> (created: Date, expires: Date)? {
+        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+              let data = try? Data(contentsOf: url),
+              let start = data.range(of: Data("<?xml".utf8)),
+              let end = data.range(of: Data("</plist>".utf8))
+        else { return nil }
+        let plistData = data[start.lowerBound..<end.upperBound]
+        guard let plist = try? PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any],
+              let created = plist["CreationDate"] as? Date,
+              let expires = plist["ExpirationDate"] as? Date
+        else { return nil }
+        return (created, expires)
+    }
+}
+
+struct InstallBanner: View {
+    let install: AppInstall
+
+    var body: some View {
+        let urgent = install.daysLeft <= 2
+        HStack(spacing: 8) {
+            Image(systemName: "clock")
+                .font(.system(size: 12, weight: .semibold))
+            Text(install.bannerText)
+                .font(Theme.body(12.5, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .foregroundStyle(urgent ? Theme.accent800 : Theme.neutral700)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .padding(.horizontal, Theme.screenPadding)
+        .background(urgent ? Theme.accent100 : Theme.neutral100)
+    }
+}
