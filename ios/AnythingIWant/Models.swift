@@ -22,16 +22,15 @@ struct PantryGroup: Codable, Hashable, Identifiable {
     let items: [String]
 }
 
-/// Default Cupboard categories until Settings saves a custom list.
-/// Every date the app shows reads dd-mm-yy (e.g. 21-11-26), same as the web
-/// app's formatShortDate. Expiry dates are parsed at UTC midnight, so pass
+/// Every date the app shows reads like 26 Nov 2027, same as the web app's
+/// formatShortDate. Expiry dates are parsed at UTC midnight, so pass
 /// `utc: true` for those so they never show the day before.
 func shortDateString(_ date: Date, utc: Bool = false) -> String {
     let formatter = DateFormatter()
     formatter.calendar = Calendar(identifier: .gregorian)
     formatter.locale = Locale(identifier: "en_US_POSIX")
     formatter.timeZone = utc ? TimeZone(secondsFromGMT: 0) : .current
-    formatter.dateFormat = "dd-MM-yy"
+    formatter.dateFormat = "d MMM yyyy"
     return formatter.string(from: date)
 }
 
@@ -1085,7 +1084,7 @@ struct UsageStats: Decodable {
             return formatter
         }()
         private static let fallbackParser = ISO8601DateFormatter()
-        /// "Resets 15-09-26" — nil (caption just isn't shown) if `resetsAt`
+        /// "Resets 15 Sep 2026" — nil (caption just isn't shown) if `resetsAt`
         /// is missing or in a shape that doesn't parse.
         var resetsLabel: String? {
             guard let resetsAt else { return nil }

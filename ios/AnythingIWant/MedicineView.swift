@@ -373,7 +373,7 @@ extension MedicineItem {
         let today = Calendar.current.startOfDay(for: Date())
         let day = Calendar.current.startOfDay(for: date)
         let diff = Calendar.current.dateComponents([.day], from: today, to: day).day ?? 0
-        // dd-mm-yy, like the web app; parseExpiryDate reads the date at UTC
+        // 26 Nov 2027, like the web app; parseExpiryDate reads the date at UTC
         // midnight, so format it in UTC too.
         let fullDate = shortDateString(date, utc: true)
         if diff < 0 {
